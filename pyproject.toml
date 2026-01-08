@@ -1,0 +1,77 @@
+[project]
+name = "cogsol"
+version = "0.1.0"
+description = "CogSol agent-first framework (alpha)"
+authors = [{ name = "Cognitive Solutions" }]
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+dependencies = []
+keywords = ["ai", "agents", "llm", "framework", "assistant", "chatbot"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/Pyxis-Cognitive-Solutions/cogsol-framework"
+Documentation = "https://github.com/Pyxis-Cognitive-Solutions/cogsol-framework#readme"
+Repository = "https://github.com/Pyxis-Cognitive-Solutions/cogsol-framework.git"
+Issues = "https://github.com/Pyxis-Cognitive-Solutions/cogsol-framework/issues"
+Changelog = "https://github.com/Pyxis-Cognitive-Solutions/cogsol-framework/blob/main/CHANGELOG.md"
+[project.scripts]
+cogsol-admin = "cogsol.bin.cogsol_admin:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=23.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cogsol*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4"]
+ignore = ["E501","UP045"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["cogsol"]
+omit = ["*/tests/*", "*/__pycache__/*"]
