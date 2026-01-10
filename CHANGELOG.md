@@ -64,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FAQ, fixed response, and lesson changes now tracked separately from agent
 - Module reloading for reliable definition collection
 - Prompt text loaded and stored in migration state
+- Loader now detects definitions in submodules and surfaces import failures during collection
 
 ---
 

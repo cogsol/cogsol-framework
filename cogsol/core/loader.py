@@ -10,7 +10,7 @@ import sys
 import textwrap
 from enum import Enum
 from pathlib import Path
-from typing import Any, Union, cast
+from typing import Any, Optional, Union, cast
 
 from typing_extensions import TypeAlias
 
@@ -109,6 +109,14 @@ def _import_module(module_name: str, project_path: Path):
             sys.path.remove(str(project_path))
         except ValueError:
             pass
+
+
+def _ignore_missing_module(exc: ModuleNotFoundError, module_name: str) -> bool:
+    return exc.name == module_name
+
+
+def _raise_import_error(context: str, module_name: str, exc: ModuleNotFoundError) -> None:
+    raise RuntimeError(f"Failed to import {context} '{module_name}': {exc}") from exc
 
 
 def _extract_class_fields(cls: type) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -233,11 +241,14 @@ def collect_definitions(
     # Tools (global, reusable)
     try:
         tool_module = _import_module(f"{app_name}.tools", project_path)
+        tool_prefix = f"{tool_module.__name__}."
         for _, obj in inspect.getmembers(tool_module, inspect.isclass):
             if (
                 issubclass(obj, BaseTool)
                 and obj is not BaseTool
-                and obj.__module__ == tool_module.__name__
+                and (
+                    obj.__module__ == tool_module.__name__ or obj.__module__.startswith(tool_prefix)
+                )
             ):
                 fields, meta = _extract_class_fields(obj)
                 normalized = _tool_key_from_class(obj)
@@ -253,17 +264,22 @@ def collect_definitions(
                     code_repr = ""
                 fields["__code__"] = _normalize_code(code_repr)
                 definitions["tools"][normalized] = {"fields": fields, "meta": meta}
-    except ModuleNotFoundError:
-        pass
+    except ModuleNotFoundError as exc:
+        if not _ignore_missing_module(exc, f"{app_name}.tools"):
+            _raise_import_error("tools module", f"{app_name}.tools", exc)
 
     # Retrieval tools (global, reusable)
     try:
         retrieval_module = _import_module(f"{app_name}.searches", project_path)
+        retrieval_prefix = f"{retrieval_module.__name__}."
         for _, obj in inspect.getmembers(retrieval_module, inspect.isclass):
             if (
                 issubclass(obj, BaseRetrievalTool)
                 and obj is not BaseRetrievalTool
-                and obj.__module__ == retrieval_module.__name__
+                and (
+                    obj.__module__ == retrieval_module.__name__
+                    or obj.__module__.startswith(retrieval_prefix)
+                )
             ):
                 fields, meta = _extract_class_fields(obj)
                 name = fields.get("name") or obj.__name__
@@ -271,8 +287,9 @@ def collect_definitions(
                 if "parameters" not in fields:
                     fields["parameters"] = []
                 definitions["retrieval_tools"][name] = {"fields": fields, "meta": meta}
-    except ModuleNotFoundError:
-        pass
+    except ModuleNotFoundError as exc:
+        if not _ignore_missing_module(exc, f"{app_name}.searches"):
+            _raise_import_error("retrieval tools module", f"{app_name}.searches", exc)
 
     # Per-agent packages (agents/<slug>/agent.py)
     for sub in sorted(app_path.iterdir()):
@@ -283,13 +300,17 @@ def collect_definitions(
         agent_module_path = f"{app_name}.{sub.name}.agent"
         try:
             agent_module = _import_module(agent_module_path, project_path)
-        except ModuleNotFoundError:
-            continue
+        except ModuleNotFoundError as exc:
+            if _ignore_missing_module(exc, agent_module_path):
+                continue
+            _raise_import_error("agent module", agent_module_path, exc)
 
         for _, obj in inspect.getmembers(agent_module, inspect.isclass):
             if not issubclass(obj, BaseAgent) or obj is BaseAgent:
                 continue
-            if obj.__module__ != agent_module.__name__:
+            if obj.__module__ != agent_module.__name__ and not obj.__module__.startswith(
+                f"{app_name}.{sub.name}."
+            ):
                 continue
             _attach_related(obj, project_path, app_name, sub.name)
             fields, meta = _extract_class_fields(obj)
@@ -343,7 +364,9 @@ def collect_definitions(
         for _, obj in inspect.getmembers(legacy_agents, inspect.isclass):
             if not issubclass(obj, BaseAgent) or obj is BaseAgent:
                 continue
-            if obj.__module__ != legacy_agents.__name__:
+            if obj.__module__ != legacy_agents.__name__ and not obj.__module__.startswith(
+                f"{app_name}."
+            ):
                 continue
             fields, meta = _extract_class_fields(obj)
             prompt_value = getattr(obj, "system_prompt", None)
@@ -385,8 +408,9 @@ def collect_definitions(
                     }
                 }
             definitions["agents"][obj.__name__] = {"fields": fields, "meta": meta}
-    except ModuleNotFoundError:
-        pass
+    except ModuleNotFoundError as exc:
+        if not _ignore_missing_module(exc, f"{app_name}.agents"):
+            _raise_import_error("legacy agents module", f"{app_name}.agents", exc)
 
     return definitions
 
@@ -409,29 +433,38 @@ def collect_classes(project_path: Path, app_name: str = "agents") -> dict[str, d
     # Tools
     try:
         tool_module = _import_module(f"{app_name}.tools", project_path)
+        tool_prefix = f"{tool_module.__name__}."
         for _, obj in inspect.getmembers(tool_module, inspect.isclass):
             if (
                 issubclass(obj, BaseTool)
                 and obj is not BaseTool
-                and obj.__module__ == tool_module.__name__
+                and (
+                    obj.__module__ == tool_module.__name__ or obj.__module__.startswith(tool_prefix)
+                )
             ):
                 key = _tool_key_from_class(obj)
                 classes["tools"][key] = obj
-    except ModuleNotFoundError:
-        pass
+    except ModuleNotFoundError as exc:
+        if not _ignore_missing_module(exc, f"{app_name}.tools"):
+            _raise_import_error("tools module", f"{app_name}.tools", exc)
 
     # Retrieval tools
     try:
         retrieval_module = _import_module(f"{app_name}.searches", project_path)
+        retrieval_prefix = f"{retrieval_module.__name__}."
         for _, obj in inspect.getmembers(retrieval_module, inspect.isclass):
             if (
                 issubclass(obj, BaseRetrievalTool)
                 and obj is not BaseRetrievalTool
-                and obj.__module__ == retrieval_module.__name__
+                and (
+                    obj.__module__ == retrieval_module.__name__
+                    or obj.__module__.startswith(retrieval_prefix)
+                )
             ):
                 classes["retrieval_tools"][obj.__name__] = obj
-    except ModuleNotFoundError:
-        pass
+    except ModuleNotFoundError as exc:
+        if not _ignore_missing_module(exc, f"{app_name}.searches"):
+            _raise_import_error("retrieval tools module", f"{app_name}.searches", exc)
 
     # Agents per folder
     for sub in sorted(app_path.iterdir()):
@@ -442,13 +475,17 @@ def collect_classes(project_path: Path, app_name: str = "agents") -> dict[str, d
         agent_module_path = f"{app_name}.{sub.name}.agent"
         try:
             agent_module = _import_module(agent_module_path, project_path)
-        except ModuleNotFoundError:
-            continue
+        except ModuleNotFoundError as exc:
+            if _ignore_missing_module(exc, agent_module_path):
+                continue
+            _raise_import_error("agent module", agent_module_path, exc)
 
         for _, obj in inspect.getmembers(agent_module, inspect.isclass):
             if not issubclass(obj, BaseAgent) or obj is BaseAgent:
                 continue
-            if obj.__module__ != agent_module.__name__:
+            if obj.__module__ != agent_module.__name__ and not obj.__module__.startswith(
+                f"{app_name}.{sub.name}."
+            ):
                 continue
             _attach_related(obj, project_path, app_name, sub.name)
             classes["agents"][obj.__name__] = obj
@@ -459,11 +496,14 @@ def collect_classes(project_path: Path, app_name: str = "agents") -> dict[str, d
         for _, obj in inspect.getmembers(legacy_agents, inspect.isclass):
             if not issubclass(obj, BaseAgent) or obj is BaseAgent:
                 continue
-            if obj.__module__ != legacy_agents.__name__:
+            if obj.__module__ != legacy_agents.__name__ and not obj.__module__.startswith(
+                f"{app_name}."
+            ):
                 continue
             classes["agents"][obj.__name__] = obj
-    except ModuleNotFoundError:
-        pass
+    except ModuleNotFoundError as exc:
+        if not _ignore_missing_module(exc, f"{app_name}.agents"):
+            _raise_import_error("legacy agents module", f"{app_name}.agents", exc)
     return classes
 
 
@@ -602,8 +642,10 @@ def _collect_topics_recursive(
 
         try:
             module = _import_module(module_path, project_path)
-        except ModuleNotFoundError:
-            continue
+        except ModuleNotFoundError as exc:
+            if _ignore_missing_module(exc, module_path):
+                continue
+            _raise_import_error("topic module", module_path, exc)
 
         # Find BaseTopic subclass
         for _, obj in inspect.getmembers(module, inspect.isclass):
@@ -639,8 +681,9 @@ def _collect_topics_recursive(
                 metadata_configs.append(fields)
             if metadata_configs and topic_path in topics:
                 topics[topic_path]["metadata_configs"] = metadata_configs
-        except ModuleNotFoundError:
-            pass
+        except ModuleNotFoundError as exc:
+            if not _ignore_missing_module(exc, metadata_module_path):
+                _raise_import_error("metadata module", metadata_module_path, exc)
 
         # Recurse into subdirectories
         topics.update(_collect_topics_recursive(data_dir, sub, project_path, topic_path))
@@ -654,13 +697,17 @@ def _collect_formatters(project_path: Path) -> dict[str, dict[str, Any]]:
 
     try:
         module = _import_module("data.formatters", project_path)
-    except ModuleNotFoundError:
+    except ModuleNotFoundError as exc:
+        if _ignore_missing_module(exc, "data.formatters"):
+            return formatters
+        _raise_import_error("formatters module", "data.formatters", exc)
         return formatters
 
+    module_prefix = f"{module.__name__}."
     for _, obj in inspect.getmembers(module, inspect.isclass):
         if not issubclass(obj, BaseReferenceFormatter) or obj is BaseReferenceFormatter:
             continue
-        if obj.__module__ != module.__name__:
+        if obj.__module__ != module.__name__ and not obj.__module__.startswith(module_prefix):
             continue
 
         fields, meta = _extract_class_fields(obj)
@@ -676,13 +723,17 @@ def _collect_ingestion_configs(project_path: Path) -> dict[str, dict[str, Any]]:
 
     try:
         module = _import_module("data.ingestion", project_path)
-    except ModuleNotFoundError:
+    except ModuleNotFoundError as exc:
+        if _ignore_missing_module(exc, "data.ingestion"):
+            return configs
+        _raise_import_error("ingestion module", "data.ingestion", exc)
         return configs
 
+    module_prefix = f"{module.__name__}."
     for _, obj in inspect.getmembers(module, inspect.isclass):
         if not issubclass(obj, BaseIngestionConfig) or obj is BaseIngestionConfig:
             continue
-        if obj.__module__ != module.__name__:
+        if obj.__module__ != module.__name__ and not obj.__module__.startswith(module_prefix):
             continue
 
         fields, meta = _extract_class_fields(obj)
@@ -698,16 +749,29 @@ def _collect_retrievals(project_path: Path) -> dict[str, dict[str, Any]]:
 
     try:
         module = _import_module("data.retrievals", project_path)
-    except ModuleNotFoundError:
+    except ModuleNotFoundError as exc:
+        if _ignore_missing_module(exc, "data.retrievals"):
+            return retrievals
+        _raise_import_error("retrievals module", "data.retrievals", exc)
         return retrievals
 
+    module_prefix = f"{module.__name__}."
     for _, obj in inspect.getmembers(module, inspect.isclass):
         if not issubclass(obj, BaseRetrieval) or obj is BaseRetrieval:
             continue
-        if obj.__module__ != module.__name__:
+        if obj.__module__ != module.__name__ and not obj.__module__.startswith(module_prefix):
             continue
 
         fields, meta = _extract_class_fields(obj)
+        topic_value = getattr(obj, "topic", None)
+        topic_cls: Optional[type[BaseTopic]] = None
+        if isinstance(topic_value, BaseTopic):
+            topic_cls = type(topic_value)
+        elif isinstance(topic_value, type) and issubclass(topic_value, BaseTopic):
+            topic_cls = topic_value
+        if topic_cls and topic_cls.__module__.startswith("data."):
+            topic_path = topic_cls.__module__[len("data.") :].replace(".", "/")
+            fields["topic"] = topic_path
         name = fields.get("name") or obj.__name__
         retrievals[name] = {"fields": fields, "meta": meta, "class": obj}
 
