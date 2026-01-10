@@ -298,7 +298,7 @@ python manage.py ingest <topic> <files...> [options]
 - `--doc-type`: Document type (defaults to `Text Document`)
 - `--ingestion-config`: Name of an ingestion config from `data/ingestion.py`
 - `--pdf-mode`: PDF parsing mode (`manual`, `OpenAI`, `both`, `ocr`, `ocr_openai`)
-- `--chunking`: Chunking mode (`langchain`, `agentic`)
+- `--chunking`: Chunking mode (`langchain`, `ingestor`)
 - `--max-size-block`: Maximum characters per block (default: 1500)
 - `--chunk-overlap`: Overlap between blocks (default: 0)
 - `--separators`: Comma-separated chunk separators

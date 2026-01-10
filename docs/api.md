@@ -797,7 +797,7 @@ doc_id = client.upload_document(
     node_id=1,
     doc_type="Text Document",
     pdf_parsing_mode="ocr",
-    chunking_mode="agentic",
+    chunking_mode="ingestor",
     max_size_block=2000
 )
 ```

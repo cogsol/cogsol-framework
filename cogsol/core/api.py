@@ -503,7 +503,7 @@ class CogSolClient:
             metadata: List of metadata dicts with config_id and value keys.
             ingestion_config_id: Optional ID of a saved ingestion config.
             pdf_parsing_mode: PDF parsing mode (manual, OpenAI, both, ocr, ocr_openai).
-            chunking_mode: How to chunk (langchain, agentic).
+            chunking_mode: How to chunk (langchain, ingestor).
             max_size_block: Maximum characters per block.
             chunk_overlap: Overlap between blocks.
             separators: Custom chunk separators.

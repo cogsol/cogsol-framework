@@ -39,7 +39,7 @@ class TestEnums:
     def test_chunking_mode_values(self):
         """ChunkingMode should have expected values."""
         assert ChunkingMode.LANGCHAIN.value == "langchain"
-        assert ChunkingMode.AGENTIC_SPLITTER.value == "agentic"
+        assert ChunkingMode.AGENTIC_SPLITTER.value == "ingestor"
 
     def test_reordering_strategy_values(self):
         """ReorderingStrategy should have expected values."""

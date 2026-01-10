@@ -204,7 +204,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--chunking",
             default="langchain",
-            choices=["langchain", "agentic"],
+            choices=["langchain", "ingestor"],
             help="Chunking mode (default: langchain).",
         )
         parser.add_argument(

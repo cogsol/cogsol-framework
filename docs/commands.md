@@ -599,7 +599,7 @@ python manage.py ingest <topic> <files...> [options]
 | `--doc-type` | `Text Document` | Document type string |
 | `--ingestion-config` | - | Name of ingestion config from `data/ingestion.py` |
 | `--pdf-mode` | `both` | PDF parsing: `manual`, `OpenAI`, `both`, `ocr`, `ocr_openai` |
-| `--chunking` | `langchain` | Chunking: `langchain`, `agentic` |
+| `--chunking` | `langchain` | Chunking: `langchain`, `ingestor` |
 | `--max-size-block` | `1500` | Maximum characters per block |
 | `--chunk-overlap` | `0` | Overlap between blocks |
 | `--separators` | - | Comma-separated chunk separators |
@@ -649,7 +649,7 @@ python manage.py ingest documentation ./docs/
 python manage.py ingest documentation ./reports/ \
     --doc-type "Text Document" \
     --pdf-mode ocr \
-    --chunking agentic \
+    --chunking ingestor \
     --max-size-block 2000
 
 # Preview what would be ingested

@@ -37,7 +37,7 @@ class ChunkingMode(Enum):
     """Chunking strategies for document processing."""
 
     LANGCHAIN = "langchain"
-    AGENTIC_SPLITTER = "agentic"
+    AGENTIC_SPLITTER = "ingestor"
 
 
 class ReorderingStrategy(Enum):
