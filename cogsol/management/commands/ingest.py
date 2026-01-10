@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import glob
 import importlib
 import inspect
@@ -130,7 +131,7 @@ def find_topic_node_id(client: CogSolClient, topic_path: str) -> Optional[int]:
     return None
 
 
-def collect_files(paths: list[str]) -> list[Path]:
+def collect_files(paths: list[str], pattern: Optional[str] = None) -> list[Path]:
     """Collect files from paths, expanding globs and directories."""
     files = []
     for path_str in paths:
@@ -139,17 +140,22 @@ def collect_files(paths: list[str]) -> list[Path]:
             for match in glob.glob(path_str, recursive=True):
                 p = Path(match)
                 if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS:
+                    if pattern and not fnmatch.fnmatch(p.name, pattern):
+                        continue
                     files.append(p)
         else:
             p = Path(path_str)
             if p.is_file():
                 if p.suffix.lower() in SUPPORTED_EXTENSIONS:
+                    if pattern and not fnmatch.fnmatch(p.name, pattern):
+                        continue
                     files.append(p)
                 else:
                     print(f"Warning: Skipping unsupported file type: {p}")
             elif p.is_dir():
                 # Recursively collect files from directory
-                for child in p.rglob("*"):
+                glob_pattern = pattern or "*"
+                for child in p.rglob(glob_pattern):
                     if child.is_file() and child.suffix.lower() in SUPPORTED_EXTENSIONS:
                         files.append(child)
             else:
@@ -241,6 +247,10 @@ class Command(BaseCommand):
             action="store_true",
             help="Show what would be ingested without actually uploading.",
         )
+        parser.add_argument(
+            "--pattern",
+            help="Optional filename pattern (e.g., '*.md') to filter files within directories.",
+        )
 
     def handle(self, project_path: Path | None, **options: Any) -> int:
         if not project_path:
@@ -266,8 +276,10 @@ class Command(BaseCommand):
         assign_paths_as_metadata = bool(options.get("assign_paths_as_metadata"))
         dry_run = bool(options.get("dry_run"))
 
+        pattern = options.get("pattern")
+
         # Collect files
-        files = collect_files(file_paths)
+        files = collect_files(file_paths, pattern=str(pattern) if pattern else None)
         if not files:
             print("No supported files found to ingest.")
             print(f"Supported extensions: {', '.join(sorted(SUPPORTED_EXTENSIONS))}")

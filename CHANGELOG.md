@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Support for PDFs, DOCX, TXT, MD, HTML, and more
   - Ingestion configuration presets
   - Dry-run mode for previewing uploads
+  - Optional filename pattern filtering for directory ingestion
 - `topics` - List topics from API or local definitions
   - `--local` flag for local definitions
   - `--sync-status` flag for comparison
