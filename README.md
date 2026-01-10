@@ -1,6 +1,6 @@
 # CogSol Framework
 
-**Version:** 0.1.0 (Alpha)
+**Version:** 0.2.0 (Alpha)
 
 CogSol is a lightweight, agent-first Python framework for building, managing, and deploying AI assistants. It provides scaffolding, agent abstractions, and file-based migration utilities for CogSol projects without requiring an external database.
 
@@ -13,6 +13,8 @@ CogSol is a lightweight, agent-first Python framework for building, managing, an
 - [Project Structure](#project-structure)
 - [CLI Commands](#cli-commands)
 - [Core Concepts](#core-concepts)
+  - [Agents](#agents)
+  - [Data & Topics](#data--topics)
 - [Configuration](#configuration)
 - [API Reference](#api-reference)
 - [Contributing](#contributing)
@@ -39,8 +41,10 @@ CogSol is designed to provide a Django-like development experience for building 
 |---------|-------------|
 | **Agent Definitions** | Define AI agents as Python classes with configurable attributes |
 | **Tool System** | Create reusable tools with typed parameters and decorators |
-| **Migrations** | Track and version agent/tool changes |
-| **Remote Sync** | Push definitions to CogSol APIs |
+| **Topics & Documents** | Organize knowledge bases with hierarchical topics and document ingestion |
+| **Retrievals** | Configure semantic search across your document collections |
+| **Migrations** | Track and version agent/tool/topic changes |
+| **Remote Sync** | Push definitions to CogSol Cognitive and Content APIs |
 | **Interactive Chat** | Built-in CLI for testing agents |
 | **Import/Export** | Import existing assistants from the API |
 
@@ -81,9 +85,17 @@ myproject/
 ├── settings.py         # Project configuration
 ├── .env.example        # Environment template
 ├── README.md
-└── agents/
+├── agents/
+│   ├── __init__.py
+│   ├── tools.py        # Global tool definitions
+│   ├── searches.py     # Retrieval tool definitions
+│   └── migrations/
+│       └── __init__.py
+└── data/
     ├── __init__.py
-    ├── tools.py        # Global tool definitions
+    ├── formatters.py   # Reference formatters
+    ├── ingestion.py    # Ingestion configurations
+    ├── retrievals.py   # Retrieval configurations
     └── migrations/
         └── __init__.py
 ```
@@ -113,6 +125,7 @@ Copy `.env.example` to `.env` and set your API credentials:
 ```env
 COGSOL_ENV=local
 COGSOL_API_BASE=https://api.cogsol.ai/cognitive/
+COGSOL_CONTENT_API_BASE=https://api.cogsol.ai/content/
 COGSOL_API_TOKEN=your-api-token
 ```
 
@@ -134,6 +147,23 @@ python manage.py migrate
 python manage.py chat --agent SalesAgent
 ```
 
+### 7. Add Document Topics (Optional)
+
+```bash
+# Create a topic for documents
+python manage.py starttopic documentation
+
+# Create nested topics
+python manage.py starttopic tutorials --path documentation
+
+# Create migrations for data
+python manage.py makemigrations data
+python manage.py migrate data
+
+# Ingest documents into a topic
+python manage.py ingest documentation ./docs/*.pdf
+```
+
 ---
 
 ## Project Structure
@@ -148,6 +178,7 @@ myproject/
 ├── agents/                      # Agents application
 │   ├── __init__.py
 │   ├── tools.py                 # Shared tool definitions
+│   ├── searches.py              # Retrieval tool definitions
 │   ├── migrations/              # Migration files
 │   │   ├── __init__.py
 │   │   ├── 0001_initial.py
@@ -161,6 +192,19 @@ myproject/
 │       ├── lessons.py           # Lesson definitions
 │       └── prompts/
 │           └── <slug>.md        # System prompt
+└── data/                        # Data application
+    ├── __init__.py
+    ├── formatters.py            # Reference formatter definitions
+    ├── ingestion.py             # Ingestion configuration definitions
+    ├── retrievals.py            # Retrieval configuration definitions
+    ├── migrations/              # Migration files
+    │   ├── __init__.py
+    │   ├── 0001_initial.py
+    │   ├── .applied.json
+    │   └── .state.json
+    └── <topic-path>/            # Topic folder (can be nested)
+        ├── __init__.py          # Topic class definition
+        └── metadata.py          # Metadata configurations
 ```
 
 ---
@@ -195,14 +239,14 @@ python manage.py startagent <agent-name> [app]
 
 ### `makemigrations`
 
-Generate migration files based on agent/tool changes.
+Generate migration files based on agent/tool/topic changes.
 
 ```bash
 python manage.py makemigrations [app] [--name <suffix>]
 ```
 
 **Arguments:**
-- `app`: (Optional) App to migrate, defaults to `agents`
+- `app`: (Optional) App to migrate, `agents` or `data` (when omitted, runs both)
 - `--name`: (Optional) Custom migration name suffix
 
 ### `migrate`
@@ -214,7 +258,78 @@ python manage.py migrate [app]
 ```
 
 **Arguments:**
-- `app`: (Optional) App to migrate, defaults to `agents`
+- `app`: (Optional) App to migrate, `agents` or `data` (when omitted, runs both)
+
+### `starttopic`
+
+Create a new topic folder under `data/`.
+
+```bash
+python manage.py starttopic <topic-name> [--path <parent-path>]
+```
+
+**Arguments:**
+- `topic-name`: Name of the topic (used as folder name)
+- `--path`: (Optional) Parent path for nested topics (e.g., `parent/child`)
+
+**Examples:**
+```bash
+# Create a root topic
+python manage.py starttopic documentation
+
+# Create a nested topic
+python manage.py starttopic tutorials --path documentation
+# Creates: data/documentation/tutorials/
+```
+
+### `ingest`
+
+Ingest documents into a topic.
+
+```bash
+python manage.py ingest <topic> <files...> [options]
+```
+
+**Arguments:**
+- `topic`: Topic path (e.g., `documentation` or `parent/child/topic`)
+- `files`: Files, directories, or glob patterns to ingest
+
+**Options:**
+- `--doc-type`: Document type (defaults to `Text Document`)
+- `--ingestion-config`: Name of an ingestion config from `data/ingestion.py`
+- `--pdf-mode`: PDF parsing mode (`manual`, `OpenAI`, `both`, `ocr`, `ocr_openai`)
+- `--chunking`: Chunking mode (`langchain`, `agentic`)
+- `--max-size-block`: Maximum characters per block (default: 1500)
+- `--chunk-overlap`: Overlap between blocks (default: 0)
+- `--separators`: Comma-separated chunk separators
+- `--ocr`: Enable OCR parsing
+- `--additional-prompt-instructions`: Extra parsing instructions
+- `--assign-paths-as-metadata`: Assign file paths as metadata
+- `--dry-run`: Show what would be ingested without uploading
+
+**Examples:**
+```bash
+# Ingest PDF files
+python manage.py ingest documentation ./docs/*.pdf
+
+# Ingest with custom config
+python manage.py ingest documentation ./docs/ --ingestion-config HighQuality
+
+# Dry run to preview
+python manage.py ingest documentation ./data/ --dry-run
+```
+
+### `topics`
+
+List topics from the API or local definitions.
+
+```bash
+python manage.py topics [options]
+```
+
+**Options:**
+- `--local`: Show topics from local definitions instead of API
+- `--sync-status`: Show synchronization status (local vs API)
 
 ### `importagent`
 
@@ -310,23 +425,38 @@ Tools extend agent capabilities. Define tools in `agents/tools.py`:
 ```python
 from cogsol.tools import BaseTool, tool_params
 
-class SearchTool(BaseTool):
-    description = "Search for information in the knowledge base."
-    
-    @tool_params(
-        query={"description": "Search query", "type": "string", "required": True},
-        limit={"description": "Max results", "type": "integer", "required": False},
-    )
-    def run(self, chat=None, data=None, secrets=None, log=None, 
-            query: str = "", limit: int = 10):
-        """
-        query: The search query.
-        limit: Maximum number of results.
-        """
-        # Implementation here
-        results = perform_search(query, limit)
-        response = format_results(results)
-        return response
+# class SearchTool(BaseTool):
+#     description = "Search for information in the knowledge base."
+#     
+#     @tool_params(
+#         query={"description": "Search query", "type": "string", "required": True},
+#         limit={"description": "Max results", "type": "integer", "required": False},
+#     )
+#     def run(self, chat=None, data=None, secrets=None, log=None, 
+#             query: str = "", limit: int = 10):
+#         """
+#         query: The search query.
+#         limit: Maximum number of results.
+#         """
+#         # Implementation here
+#         results = perform_search(query, limit)
+#         response = format_results(results)
+#         return response
+```
+
+Retrieval tools connect agents to Content API retrievals. Define them in `agents/searches.py`:
+
+```python
+from cogsol.tools import BaseRetrievalTool
+# from data.retrievals import ProductDocsRetrieval
+#
+# class ProductDocsSearch(BaseRetrievalTool):
+#     name = "product_docs_search"
+#     description = "Search the product documentation."
+#     retrieval = ProductDocsRetrieval
+#     parameters = [
+#         {"name": "question", "description": "Search query", "type": "string", "required": True}
+#     ]
 ```
 
 #### Tool Parameters
@@ -351,31 +481,31 @@ These provide additional context to agents:
 
 ```python
 from cogsol.tools import BaseFAQ
-
-class PricingFAQ(BaseFAQ):
-    question = "What are your pricing plans?"
-    answer = "We offer three tiers: Basic ($10/mo), Pro ($25/mo), Enterprise (custom)."
+#
+# class PricingFAQ(BaseFAQ):
+#     question = "What are your pricing plans?"
+#     answer = "We offer three tiers: Basic ($10/mo), Pro ($25/mo), Enterprise (custom)."
 ```
 
 #### Fixed Responses (`fixed.py`)
 
 ```python
 from cogsol.tools import BaseFixedResponse
-
-class ClosingFixed(BaseFixedResponse):
-    key = "goodbye"
-    response = "Thank you for contacting us. Have a great day!"
+#
+# class ClosingFixed(BaseFixedResponse):
+#     key = "goodbye"
+#     response = "Thank you for contacting us. Have a great day!"
 ```
 
 #### Lessons (`lessons.py`)
 
 ```python
 from cogsol.tools import BaseLesson
-
-class ToneLesson(BaseLesson):
-    name = "Communication Tone"
-    content = "Always maintain a professional yet friendly tone."
-    context_of_application = "general"
+#
+# class ToneLesson(BaseLesson):
+#     name = "Communication Tone"
+#     content = "Always maintain a professional yet friendly tone."
+#     context_of_application = "general"
 ```
 
 ### Prompts
@@ -403,6 +533,130 @@ generation_config = genconfigs.QA()
 generation_config = genconfigs.FastRetrieval()
 ```
 
+### Data & Topics
+
+CogSol provides a complete system for managing document collections and semantic search through the Content API.
+
+#### Topics
+
+Topics are hierarchical containers for organizing documents. Define them in `data/<topic>/`:
+
+```python
+# data/documentation/__init__.py
+from cogsol.content import BaseTopic
+#
+# class DocumentationTopic(BaseTopic):
+#     name = "documentation"
+#
+#     class Meta:
+#         description = "Product documentation and guides."
+```
+
+Topics can be nested by creating subdirectories:
+
+```
+data/
+├── documentation/
+│   ├── __init__.py
+│   ├── metadata.py
+│   └── tutorials/
+│       ├── __init__.py
+│       └── metadata.py
+```
+
+#### Metadata Configurations
+
+Define custom metadata fields for documents within a topic:
+
+```python
+# data/documentation/metadata.py
+from cogsol.content import BaseMetadataConfig, MetadataType
+#
+# class CategoryMetadata(BaseMetadataConfig):
+#     name = "category"
+#     type = MetadataType.STRING
+#     possible_values = ["Guide", "Tutorial", "Reference", "FAQ"]
+#     filtrable = True
+#     required = False
+#
+# class VersionMetadata(BaseMetadataConfig):
+#     name = "version"
+#     type = MetadataType.STRING
+#     required = True
+#     default_value = "1.0"
+```
+
+#### Ingestion Configurations
+
+Define reusable ingestion settings in `data/ingestion.py`:
+
+```python
+from cogsol.content import BaseIngestionConfig, PDFParsingMode, ChunkingMode
+#
+# class HighQualityConfig(BaseIngestionConfig):
+#     name = "high_quality"
+#     pdf_parsing_mode = PDFParsingMode.OCR
+#     chunking_mode = ChunkingMode.AGENTIC_SPLITTER
+#     max_size_block = 2000
+#     chunk_overlap = 100
+#
+# class FastConfig(BaseIngestionConfig):
+#     name = "fast"
+#     pdf_parsing_mode = PDFParsingMode.MANUAL
+#     chunking_mode = ChunkingMode.LANGCHAIN
+#     max_size_block = 1500
+```
+
+Use with the `ingest` command:
+
+```bash
+python manage.py ingest documentation ./docs/ --ingestion-config high_quality
+```
+
+#### Reference Formatters
+
+Define how document blocks are formatted when referenced:
+
+```python
+# data/formatters.py
+from cogsol.content import BaseReferenceFormatter
+#
+# class DetailedFormatter(BaseReferenceFormatter):
+#     name = "detailed"
+#     description = "Include page and category."
+#     expression = "[{name}, p.{page_num}] ({metadata.category})"
+#
+# class SimpleFormatter(BaseReferenceFormatter):
+#     name = "simple"
+#     expression = "{name}"
+```
+
+#### Retrievals
+
+Configure semantic search across topics:
+
+```python
+# data/retrievals.py
+from cogsol.content import BaseRetrieval, ReorderingStrategy
+# from data.formatters import DetailedFormatter
+# from data.documentation.metadata import VersionMetadata
+#
+# class DocumentationRetrieval(BaseRetrieval):
+#     name = "documentation_search"
+#     topic = "documentation"
+#     num_refs = 10
+#     reordering = False
+#     strategy_reordering = ReorderingStrategy.NONE
+#     formatters = {"Text Document": DetailedFormatter}
+#     filters = []
+#
+# class FilteredRetrieval(BaseRetrieval):
+#     name = "v2_docs"
+#     topic = "documentation"
+#     num_refs = 5
+#     filters = [VersionMetadata]
+```
+
 ---
 
 ## Configuration
@@ -411,7 +665,8 @@ generation_config = genconfigs.FastRetrieval()
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `COGSOL_API_BASE` | Yes | Base URL for the CogSol API |
+| `COGSOL_API_BASE` | Yes | Base URL for the CogSol Cognitive API |
+| `COGSOL_CONTENT_API_BASE` | No | Base URL for the CogSol Content API (defaults to `COGSOL_API_BASE`) |
 | `COGSOL_API_TOKEN` | Yes | API authentication token |
 | `COGSOL_ENV` | No | Environment name (e.g., `local`, `production`) |
 

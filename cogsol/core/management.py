@@ -15,6 +15,9 @@ def _command_registry() -> dict[str, str]:
     return {
         "startproject": "cogsol.management.commands.startproject",
         "startagent": "cogsol.management.commands.startagent",
+        "starttopic": "cogsol.management.commands.starttopic",
+        "topics": "cogsol.management.commands.topics",
+        "ingest": "cogsol.management.commands.ingest",
         "importagent": "cogsol.management.commands.importagent",
         "makemigrations": "cogsol.management.commands.makemigrations",
         "migrate": "cogsol.management.commands.migrate",

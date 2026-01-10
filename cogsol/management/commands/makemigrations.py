@@ -6,56 +6,72 @@ from typing import Any
 
 from cogsol import __version__
 from cogsol.core import migrations as migutils
-from cogsol.core.loader import collect_definitions
+from cogsol.core.loader import collect_content_definitions, collect_definitions
 from cogsol.management.base import BaseCommand
 
 
 class Command(BaseCommand):
-    help = "Create new migrations based on agent definitions."
+    help = "Create new migrations based on agent or content definitions."
 
     def add_arguments(self, parser):
-        parser.add_argument("app", nargs="?", default="agents", help="App to make migrations for.")
+        parser.add_argument(
+            "app",
+            nargs="?",
+            default=None,
+            help="App to make migrations for (agents, data, or both when omitted).",
+        )
         parser.add_argument("--name", help="Optional migration name suffix.")
 
     def handle(self, project_path: Path | None, **options: Any) -> int:
         assert project_path is not None, "project_path is required"
-        app = str(options.get("app") or "agents")
+        app = options.get("app")
         name = options.get("name")
-        app_path = project_path / app
-        if not app_path.exists():
-            print(f"App '{app}' not found at {app_path}")
-            return 1
+        apps = [str(app)] if app else ["agents", "data"]
 
-        migrations_path = app_path / "migrations"
-        previous_state = migutils.state_from_migrations(migrations_path)
-        try:
-            current_state = collect_definitions(project_path, app)
-        except Exception as exc:  # pragma: no cover - surface helpful message
-            print(f"Error while importing definitions: {exc}")
-            return 1
+        exit_code = 0
+        for app_name in apps:
+            app_path = project_path / app_name
+            if not app_path.exists():
+                print(f"App '{app_name}' not found at {app_path}")
+                exit_code = 1
+                continue
 
-        operations = migutils.diff_states(previous_state, current_state)
-        if not operations:
-            print(f"No changes detected in app '{app}'.")
-            return 0
+            migrations_path = app_path / "migrations"
+            previous_state = migutils.state_from_migrations(migrations_path)
 
-        migrations_path.mkdir(parents=True, exist_ok=True)
-        migration_name = migutils.next_migration_name(migrations_path, explicit_name=name)
-        file_path = migrations_path / f"{migration_name}.py"
-        dependencies = []
-        existing = list(migutils.iter_migration_files(migrations_path))
-        if existing:
-            dependencies = [(app, existing[-1].stem)]
+            try:
+                if app_name == "data":
+                    current_state = collect_content_definitions(project_path, app_name)
+                else:
+                    current_state = collect_definitions(project_path, app_name)
+            except Exception as exc:  # pragma: no cover - surface helpful message
+                print(f"Error while importing definitions: {exc}")
+                exit_code = 1
+                continue
 
-        content = self._render_migration(
-            migration_name,
-            dependencies,
-            operations,
-            initial=not bool(existing),
-        )
-        file_path.write_text(content, encoding="utf-8")
-        print(f"Created migration {migration_name} for app '{app}'.")
-        return 0
+            operations = migutils.diff_states(previous_state, current_state, app=app_name)
+            if not operations:
+                print(f"No changes detected in app '{app_name}'.")
+                continue
+
+            migrations_path.mkdir(parents=True, exist_ok=True)
+            migration_name = migutils.next_migration_name(migrations_path, explicit_name=name)
+            file_path = migrations_path / f"{migration_name}.py"
+            dependencies = []
+            existing = list(migutils.iter_migration_files(migrations_path))
+            if existing:
+                dependencies = [(app_name, existing[-1].stem)]
+
+            content = self._render_migration(
+                migration_name,
+                dependencies,
+                operations,
+                initial=not bool(existing),
+            )
+            file_path.write_text(content, encoding="utf-8")
+            print(f"Created migration {migration_name} for app '{app_name}'.")
+
+        return exit_code
 
     def _render_migration(
         self,

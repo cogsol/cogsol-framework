@@ -54,6 +54,11 @@ class CreateTool(CreateDefinition):
         super().__init__(name=name, fields=fields, entity="tools")
 
 
+class CreateRetrievalTool(CreateDefinition):
+    def __init__(self, name: str, fields: dict[str, Any]) -> None:
+        super().__init__(name=name, fields=fields, entity="retrieval_tools")
+
+
 class CreateLesson(CreateDefinition):
     def __init__(self, name: str, fields: dict[str, Any]) -> None:
         super().__init__(name=name, fields=fields, entity="lessons")
@@ -67,6 +72,61 @@ class CreateFAQ(CreateDefinition):
 class CreateFixedResponse(CreateDefinition):
     def __init__(self, name: str, fields: dict[str, Any]) -> None:
         super().__init__(name=name, fields=fields, entity="fixed_responses")
+
+
+# =============================================================================
+# Content API entities (data/ folder)
+# =============================================================================
+
+
+class CreateTopic(CreateDefinition):
+    """Creates a Topic (Node) in the Content API."""
+
+    def __init__(
+        self, name: str, fields: dict[str, Any], meta: Optional[dict[str, Any]] = None
+    ) -> None:
+        super().__init__(name=name, fields=fields, meta=meta, entity="topics")
+
+
+class CreateMetadataConfig(CreateDefinition):
+    """Creates a Metadata Configuration for a Topic."""
+
+    topic: str = ""
+
+    def __init__(self, name: str, fields: dict[str, Any], topic: str = "") -> None:
+        super().__init__(name=name, fields=fields, entity="metadata_configs")
+        self.topic = topic
+
+    def apply(self, state: dict[str, Any]) -> None:
+        bucket = _ensure_bucket(state, self.entity)
+        bucket[self.name] = {"fields": self.fields, "meta": {}, "topic": self.topic}
+
+    def __repr__(self) -> str:
+        return (
+            f"{self.__class__.__name__}(name={self.name!r}, "
+            f"fields={self.fields!r}, topic={self.topic!r})"
+        )
+
+
+class CreateReferenceFormatter(CreateDefinition):
+    """Creates a Reference Formatter in the Content API."""
+
+    def __init__(self, name: str, fields: dict[str, Any]) -> None:
+        super().__init__(name=name, fields=fields, entity="formatters")
+
+
+class CreateIngestionConfig(CreateDefinition):
+    """Creates an Ingestion Configuration for document processing."""
+
+    def __init__(self, name: str, fields: dict[str, Any]) -> None:
+        super().__init__(name=name, fields=fields, entity="ingestion_configs")
+
+
+class CreateRetrieval(CreateDefinition):
+    """Creates a Retrieval configuration in the Content API."""
+
+    def __init__(self, name: str, fields: dict[str, Any]) -> None:
+        super().__init__(name=name, fields=fields, entity="retrievals")
 
 
 @dataclass

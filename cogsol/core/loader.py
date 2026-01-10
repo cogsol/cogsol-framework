@@ -8,17 +8,26 @@ import importlib
 import inspect
 import sys
 import textwrap
+from enum import Enum
 from pathlib import Path
 from typing import Any, Union, cast
 
 from typing_extensions import TypeAlias
 
 from cogsol.agents import BaseAgent, _ConfigBase
+from cogsol.content import (
+    BaseIngestionConfig,
+    BaseMetadataConfig,
+    BaseReferenceFormatter,
+    BaseRetrieval,
+    BaseTopic,
+)
 from cogsol.prompts import Prompt
 from cogsol.tools import (
     BaseFAQ,
     BaseFixedResponse,
     BaseLesson,
+    BaseRetrievalTool,
     BaseTool,
 )
 
@@ -49,14 +58,27 @@ def serialize_value(value: Any) -> Any:
         return value.name
     if isinstance(value, str) and value.startswith("def run"):
         return _normalize_code(value)
+    if isinstance(value, Enum):
+        return value.value
     if isinstance(value, (list, tuple)):
         return [serialize_value(v) for v in value]
     if isinstance(value, dict):
         return {k: serialize_value(v) for k, v in sorted(value.items())}
-    if isinstance(value, (BaseTool, BaseLesson, BaseFAQ, BaseFixedResponse)):
+    if isinstance(value, (BaseTool, BaseLesson, BaseFAQ, BaseFixedResponse, BaseRetrievalTool)):
         return (
             getattr(value, "name", None) or getattr(value, "key", None) or value.__class__.__name__
         )
+    if isinstance(value, type):
+        if issubclass(value, BaseRetrieval):
+            return getattr(value, "name", None) or value.__name__
+        if issubclass(value, BaseReferenceFormatter):
+            return getattr(value, "name", None) or value.__name__
+        if issubclass(value, BaseTopic):
+            return getattr(value, "name", None) or value.__name__
+        if issubclass(value, BaseIngestionConfig):
+            return getattr(value, "name", None) or value.__name__
+        if issubclass(value, BaseRetrievalTool):
+            return getattr(value, "name", None) or value.__name__
     if is_dataclass(value) and not isinstance(value, type):
         data = asdict(value)
         extras = {k: v for k, v in value.__dict__.items() if k not in data}
@@ -70,6 +92,14 @@ def serialize_value(value: Any) -> Any:
 
 
 def _import_module(module_name: str, project_path: Path):
+    # Ensure project modules are reloaded from the current project path.
+    parts = module_name.split(".")
+    for i in range(1, len(parts) + 1):
+        mod_name = ".".join(parts[:i])
+        sys.modules.pop(mod_name, None)
+    for name in list(sys.modules):
+        if name.startswith(f"{module_name}."):
+            sys.modules.pop(name, None)
     sys.path.insert(0, str(project_path))
     try:
         importlib.invalidate_caches()
@@ -102,6 +132,41 @@ def _extract_class_fields(cls: type) -> tuple[dict[str, Any], dict[str, Any]]:
                 continue
             meta[key] = serialize_value(value)
     return fields, meta
+
+
+def _load_prompt_text(
+    value: Any,
+    project_path: Path,
+    app_name: str,
+    slug: str | None = None,
+) -> str | None:
+    def _read(path: Path) -> str | None:
+        try:
+            if path.exists():
+                return path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return None
+        return None
+
+    candidates: list[Path] = []
+    if isinstance(value, Prompt):
+        if value.base_dir:
+            candidates.append(Path(value.base_dir) / "prompts" / value.path)
+        if slug:
+            candidates.append(project_path / app_name / slug / "prompts" / value.path)
+        candidates.append(project_path / app_name / "prompts" / value.path)
+        candidates.append(Path(value.path))
+    elif isinstance(value, Path):
+        candidates.append(value)
+        if slug:
+            candidates.append(project_path / app_name / slug / "prompts" / value.name)
+        candidates.append(project_path / app_name / "prompts" / value.name)
+
+    for candidate in candidates:
+        text = _read(candidate)
+        if text is not None:
+            return text.replace("\r\n", "\n").rstrip()
+    return None
 
 
 def _extract_tool_params(tool_cls: type[BaseTool]) -> dict[str, Any]:
@@ -159,6 +224,10 @@ def collect_definitions(
     definitions: dict[str, dict[str, dict[str, Any]]] = {
         "agents": {},
         "tools": {},
+        "retrieval_tools": {},
+        "faqs": {},
+        "fixed_responses": {},
+        "lessons": {},
     }
 
     # Tools (global, reusable)
@@ -187,6 +256,24 @@ def collect_definitions(
     except ModuleNotFoundError:
         pass
 
+    # Retrieval tools (global, reusable)
+    try:
+        retrieval_module = _import_module(f"{app_name}.searches", project_path)
+        for _, obj in inspect.getmembers(retrieval_module, inspect.isclass):
+            if (
+                issubclass(obj, BaseRetrievalTool)
+                and obj is not BaseRetrievalTool
+                and obj.__module__ == retrieval_module.__name__
+            ):
+                fields, meta = _extract_class_fields(obj)
+                name = fields.get("name") or obj.__name__
+                fields["name"] = name
+                if "parameters" not in fields:
+                    fields["parameters"] = []
+                definitions["retrieval_tools"][name] = {"fields": fields, "meta": meta}
+    except ModuleNotFoundError:
+        pass
+
     # Per-agent packages (agents/<slug>/agent.py)
     for sub in sorted(app_path.iterdir()):
         if not sub.is_dir():
@@ -206,13 +293,48 @@ def collect_definitions(
                 continue
             _attach_related(obj, project_path, app_name, sub.name)
             fields, meta = _extract_class_fields(obj)
+            prompt_value = getattr(obj, "system_prompt", None)
+            if prompt_value is not None:
+                prompt_text = _load_prompt_text(prompt_value, project_path, app_name, sub.name)
+                if prompt_text is not None:
+                    fields["system_prompt"] = prompt_text
             if not getattr(obj, "name", None):
                 fields["name"] = (
                     obj.__name__[:-5] if obj.__name__.endswith("Agent") else obj.__name__
                 )
-            fields["faqs"] = _serialize_related_list(getattr(obj, "faqs", []))
-            fields["fixed_responses"] = _serialize_related_list(getattr(obj, "fixed_responses", []))
-            fields["lessons"] = _serialize_related_list(getattr(obj, "lessons", []))
+            faqs = _serialize_related_list(getattr(obj, "faqs", []))
+            fixed = _serialize_related_list(getattr(obj, "fixed_responses", []))
+            lessons = _serialize_related_list(getattr(obj, "lessons", []))
+            for item in faqs:
+                key = f"{obj.__name__}::{item.get('name')}"
+                definitions["faqs"][key] = {
+                    "fields": {
+                        "name": item.get("name"),
+                        "content": item.get("content"),
+                        "meta": item.get("meta", {}),
+                        "agent": obj.__name__,
+                    }
+                }
+            for item in fixed:
+                key = f"{obj.__name__}::{item.get('name')}"
+                definitions["fixed_responses"][key] = {
+                    "fields": {
+                        "name": item.get("name"),
+                        "content": item.get("content"),
+                        "meta": item.get("meta", {}),
+                        "agent": obj.__name__,
+                    }
+                }
+            for item in lessons:
+                key = f"{obj.__name__}::{item.get('name')}"
+                definitions["lessons"][key] = {
+                    "fields": {
+                        "name": item.get("name"),
+                        "content": item.get("content"),
+                        "meta": item.get("meta", {}),
+                        "agent": obj.__name__,
+                    }
+                }
             definitions["agents"][obj.__name__] = {"fields": fields, "meta": meta}
 
     # Fallback: legacy single module agents.py
@@ -224,9 +346,44 @@ def collect_definitions(
             if obj.__module__ != legacy_agents.__name__:
                 continue
             fields, meta = _extract_class_fields(obj)
-            fields["faqs"] = _serialize_related_list(getattr(obj, "faqs", []))
-            fields["fixed_responses"] = _serialize_related_list(getattr(obj, "fixed_responses", []))
-            fields["lessons"] = _serialize_related_list(getattr(obj, "lessons", []))
+            prompt_value = getattr(obj, "system_prompt", None)
+            if prompt_value is not None:
+                prompt_text = _load_prompt_text(prompt_value, project_path, app_name)
+                if prompt_text is not None:
+                    fields["system_prompt"] = prompt_text
+            faqs = _serialize_related_list(getattr(obj, "faqs", []))
+            fixed = _serialize_related_list(getattr(obj, "fixed_responses", []))
+            lessons = _serialize_related_list(getattr(obj, "lessons", []))
+            for item in faqs:
+                key = f"{obj.__name__}::{item.get('name')}"
+                definitions["faqs"][key] = {
+                    "fields": {
+                        "name": item.get("name"),
+                        "content": item.get("content"),
+                        "meta": item.get("meta", {}),
+                        "agent": obj.__name__,
+                    }
+                }
+            for item in fixed:
+                key = f"{obj.__name__}::{item.get('name')}"
+                definitions["fixed_responses"][key] = {
+                    "fields": {
+                        "name": item.get("name"),
+                        "content": item.get("content"),
+                        "meta": item.get("meta", {}),
+                        "agent": obj.__name__,
+                    }
+                }
+            for item in lessons:
+                key = f"{obj.__name__}::{item.get('name')}"
+                definitions["lessons"][key] = {
+                    "fields": {
+                        "name": item.get("name"),
+                        "content": item.get("content"),
+                        "meta": item.get("meta", {}),
+                        "agent": obj.__name__,
+                    }
+                }
             definitions["agents"][obj.__name__] = {"fields": fields, "meta": meta}
     except ModuleNotFoundError:
         pass
@@ -246,6 +403,7 @@ def collect_classes(project_path: Path, app_name: str = "agents") -> dict[str, d
     classes: dict[str, dict[str, type]] = {
         "agents": {},
         "tools": {},
+        "retrieval_tools": {},
     }
 
     # Tools
@@ -259,6 +417,19 @@ def collect_classes(project_path: Path, app_name: str = "agents") -> dict[str, d
             ):
                 key = _tool_key_from_class(obj)
                 classes["tools"][key] = obj
+    except ModuleNotFoundError:
+        pass
+
+    # Retrieval tools
+    try:
+        retrieval_module = _import_module(f"{app_name}.searches", project_path)
+        for _, obj in inspect.getmembers(retrieval_module, inspect.isclass):
+            if (
+                issubclass(obj, BaseRetrievalTool)
+                and obj is not BaseRetrievalTool
+                and obj.__module__ == retrieval_module.__name__
+            ):
+                classes["retrieval_tools"][obj.__name__] = obj
     except ModuleNotFoundError:
         pass
 
@@ -388,3 +559,237 @@ def _serialize_related_list(items: Any) -> Any:
 def _tool_key_from_class(cls: type) -> str:
     cname = cls.__name__
     return cname[:-4] if cname.endswith("Tool") else cname
+
+
+# =============================================================================
+# Content API (data/) Loader Functions
+# =============================================================================
+
+
+def _extract_topic_path(topic_dir: Path, data_dir: Path) -> str:
+    """Extract the topic path relative to data/."""
+    rel_path = topic_dir.relative_to(data_dir)
+    return str(rel_path).replace("\\", "/")
+
+
+def _collect_topics_recursive(
+    data_dir: Path,
+    current_dir: Path,
+    project_path: Path,
+    parent_path: str = "",
+) -> dict[str, dict[str, Any]]:
+    """Recursively collect topic definitions from nested folders."""
+    topics: dict[str, dict[str, Any]] = {}
+
+    for sub in sorted(current_dir.iterdir()):
+        if not sub.is_dir():
+            continue
+        if sub.name in {"migrations", "__pycache__", ".git"}:
+            continue
+        if sub.name.startswith(("_", ".")):
+            continue
+
+        init_file = sub / "__init__.py"
+        if not init_file.exists():
+            # Recurse into subdirectories even without __init__.py
+            sub_path = f"{parent_path}/{sub.name}" if parent_path else sub.name
+            topics.update(_collect_topics_recursive(data_dir, sub, project_path, sub_path))
+            continue
+
+        # Import the topic module
+        topic_path = _extract_topic_path(sub, data_dir)
+        module_path = f"data.{topic_path.replace('/', '.')}"
+
+        try:
+            module = _import_module(module_path, project_path)
+        except ModuleNotFoundError:
+            continue
+
+        # Find BaseTopic subclass
+        for _, obj in inspect.getmembers(module, inspect.isclass):
+            if not issubclass(obj, BaseTopic) or obj is BaseTopic:
+                continue
+            if obj.__module__ != module.__name__:
+                continue
+
+            fields, meta = _extract_class_fields(obj)
+            # Ensure name is set
+            if not fields.get("name"):
+                fields["name"] = sub.name
+
+            # Store with path as key
+            topics[topic_path] = {
+                "fields": fields,
+                "meta": meta,
+                "class": obj,
+            }
+            break
+
+        # Also collect metadata configs from metadata.py
+        metadata_module_path = f"{module_path}.metadata"
+        try:
+            metadata_module = _import_module(metadata_module_path, project_path)
+            metadata_configs = []
+            for _, obj in inspect.getmembers(metadata_module, inspect.isclass):
+                if not issubclass(obj, BaseMetadataConfig) or obj is BaseMetadataConfig:
+                    continue
+                if obj.__module__ != metadata_module.__name__:
+                    continue
+                fields, _ = _extract_class_fields(obj)
+                metadata_configs.append(fields)
+            if metadata_configs and topic_path in topics:
+                topics[topic_path]["metadata_configs"] = metadata_configs
+        except ModuleNotFoundError:
+            pass
+
+        # Recurse into subdirectories
+        topics.update(_collect_topics_recursive(data_dir, sub, project_path, topic_path))
+
+    return topics
+
+
+def _collect_formatters(project_path: Path) -> dict[str, dict[str, Any]]:
+    """Collect reference formatters from data/formatters.py."""
+    formatters: dict[str, dict[str, Any]] = {}
+
+    try:
+        module = _import_module("data.formatters", project_path)
+    except ModuleNotFoundError:
+        return formatters
+
+    for _, obj in inspect.getmembers(module, inspect.isclass):
+        if not issubclass(obj, BaseReferenceFormatter) or obj is BaseReferenceFormatter:
+            continue
+        if obj.__module__ != module.__name__:
+            continue
+
+        fields, meta = _extract_class_fields(obj)
+        name = fields.get("name") or obj.__name__
+        formatters[name] = {"fields": fields, "meta": meta, "class": obj}
+
+    return formatters
+
+
+def _collect_ingestion_configs(project_path: Path) -> dict[str, dict[str, Any]]:
+    """Collect ingestion configs from data/ingestion.py."""
+    configs: dict[str, dict[str, Any]] = {}
+
+    try:
+        module = _import_module("data.ingestion", project_path)
+    except ModuleNotFoundError:
+        return configs
+
+    for _, obj in inspect.getmembers(module, inspect.isclass):
+        if not issubclass(obj, BaseIngestionConfig) or obj is BaseIngestionConfig:
+            continue
+        if obj.__module__ != module.__name__:
+            continue
+
+        fields, meta = _extract_class_fields(obj)
+        name = fields.get("name") or obj.__name__
+        configs[name] = {"fields": fields, "meta": meta, "class": obj}
+
+    return configs
+
+
+def _collect_retrievals(project_path: Path) -> dict[str, dict[str, Any]]:
+    """Collect retrieval configs from data/retrievals.py."""
+    retrievals: dict[str, dict[str, Any]] = {}
+
+    try:
+        module = _import_module("data.retrievals", project_path)
+    except ModuleNotFoundError:
+        return retrievals
+
+    for _, obj in inspect.getmembers(module, inspect.isclass):
+        if not issubclass(obj, BaseRetrieval) or obj is BaseRetrieval:
+            continue
+        if obj.__module__ != module.__name__:
+            continue
+
+        fields, meta = _extract_class_fields(obj)
+        name = fields.get("name") or obj.__name__
+        retrievals[name] = {"fields": fields, "meta": meta, "class": obj}
+
+    return retrievals
+
+
+def collect_content_definitions(
+    project_path: Path, app_name: str = "data"
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """
+    Collect all Content API definitions from the data/ folder.
+
+    Returns a structured dict with:
+    - topics: Topic definitions (nodes in Content API)
+    - formatters: Reference formatter definitions
+    - ingestion_configs: Ingestion configuration definitions
+    - retrievals: Retrieval configuration definitions
+    """
+    data_path = project_path / app_name
+    if not data_path.exists():
+        return {
+            "topics": {},
+            "formatters": {},
+            "ingestion_configs": {},
+            "retrievals": {},
+            "metadata_configs": {},
+        }
+
+    topics = _collect_topics_recursive(data_path, data_path, project_path)
+    metadata_configs: dict[str, dict[str, Any]] = {}
+    for topic_path, definition in topics.items():
+        for cfg_fields in definition.get("metadata_configs", []) or []:
+            cfg_name = cfg_fields.get("name")
+            if not cfg_name:
+                continue
+            cfg_key = f"{topic_path}/{cfg_name}"
+            metadata_configs[cfg_key] = {
+                "fields": cfg_fields,
+                "meta": {},
+                "topic": topic_path,
+            }
+
+    definitions: dict[str, dict[str, dict[str, Any]]] = {
+        "topics": topics,
+        "formatters": _collect_formatters(project_path),
+        "ingestion_configs": _collect_ingestion_configs(project_path),
+        "retrievals": _collect_retrievals(project_path),
+        "metadata_configs": metadata_configs,
+    }
+
+    return definitions
+
+
+def collect_content_classes(
+    project_path: Path, app_name: str = "data"
+) -> dict[str, dict[str, type]]:
+    """
+    Return actual class objects for Content API entities.
+    """
+    definitions = collect_content_definitions(project_path, app_name)
+
+    classes: dict[str, dict[str, type]] = {
+        "topics": {},
+        "formatters": {},
+        "ingestion_configs": {},
+        "retrievals": {},
+    }
+
+    for key, topic_def in definitions["topics"].items():
+        if "class" in topic_def:
+            classes["topics"][key] = topic_def["class"]
+
+    for key, fmt_def in definitions["formatters"].items():
+        if "class" in fmt_def:
+            classes["formatters"][key] = fmt_def["class"]
+
+    for key, ing_def in definitions["ingestion_configs"].items():
+        if "class" in ing_def:
+            classes["ingestion_configs"][key] = ing_def["class"]
+
+    for key, ret_def in definitions["retrievals"].items():
+        if "class" in ret_def:
+            classes["retrievals"][key] = ret_def["class"]
+
+    return classes

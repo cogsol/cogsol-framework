@@ -54,6 +54,29 @@ class BaseFixedResponse:
         return f"<FixedResponse {self.key or self.__class__.__name__}>"
 
 
+class BaseRetrievalTool:
+    name: Optional[str] = None
+    description: Optional[str] = None
+    parameters: list[dict[str, Any]] = []
+    retrieval: Optional[str] = None
+    show_tool_message: bool = False
+    show_assistant_message: bool = False
+    edit_available: bool = True
+    answer: bool = True
+
+    def __init__(self, name: Optional[str] = None, description: Optional[str] = None):
+        if name:
+            self.name = name
+        if description:
+            self.description = description
+        if not getattr(self, "name", None):
+            cls_name = self.__class__.__name__
+            self.name = cls_name[:-4] if cls_name.endswith("Tool") else cls_name
+
+    def __repr__(self) -> str:
+        return f"<RetrievalTool {self.name or self.__class__.__name__}>"
+
+
 def tool_params(**params: dict[str, Any]):
     """
     Decorator to attach parameter metadata to a tool's run method.
@@ -78,5 +101,6 @@ __all__ = [
     "BaseLesson",
     "BaseFAQ",
     "BaseFixedResponse",
+    "BaseRetrievalTool",
     "tool_params",
 ]

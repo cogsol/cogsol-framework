@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.0] - 2026-01-09
+
+### Added
+
+#### Content API Integration (NEW!)
+- **`data/` application** for managing document collections via Content API
+  - Topics (nodes), metadata configs, formatters, retrievals
+  - Hierarchical topic organization with nested folders
+- **BaseTopic** class for defining document containers
+- **BaseMetadataConfig** class for custom metadata fields
+- **BaseReferenceFormatter** class for block reference formatting
+- **BaseIngestionConfig** class for document processing settings
+- **BaseRetrieval** class for semantic search configuration
+- **BaseRetrievalTool** class for connecting agents to Content API retrievals
+
+#### New CLI Commands
+- `starttopic` - Create new topic folders under `data/`
+  - Support for nested topics with `--path` option
+- `ingest` - Upload documents to topics
+  - Support for PDFs, DOCX, TXT, MD, HTML, and more
+  - Ingestion configuration presets
+  - Dry-run mode for previewing uploads
+- `topics` - List topics from API or local definitions
+  - `--local` flag for local definitions
+  - `--sync-status` flag for comparison
+
+#### Enhanced Migration System
+- New operations: `CreateTopic`, `CreateMetadataConfig`, `CreateReferenceFormatter`, `CreateIngestionConfig`, `CreateRetrieval`, `CreateRetrievalTool`
+- Support for `data` app migrations alongside `agents` app
+- Running `makemigrations` and `migrate` without app name now processes both apps
+- Incremental sync: only touched entities are synced to API
+
+#### API Client Enhancements
+- **Content API support** via separate `content_base_url` parameter
+- `COGSOL_CONTENT_API_BASE` environment variable
+- New methods for nodes, metadata configs, formatters, retrievals
+- Multipart file upload support for document ingestion
+- Bulk document upload capability
+
+#### Project Structure Changes
+- `startproject` now creates both `agents/` and `data/` folders
+- New `agents/searches.py` for retrieval tool definitions
+- New `data/formatters.py`, `data/ingestion.py`, `data/retrievals.py`
+- Updated `.env.example` with `COGSOL_CONTENT_API_BASE`
+
+### Changed
+- `makemigrations` now accepts optional app argument (defaults to both)
+- `migrate` now accepts optional app argument (defaults to both)
+- `importagent` now imports retrieval tools and their related Content API entities
+- Agent templates use commented examples (easier to customize)
+- Tool templates use commented examples
+
+### Fixed
+- FAQ, fixed response, and lesson changes now tracked separately from agent
+- Module reloading for reliable definition collection
+- Prompt text loaded and stored in migration state
+
+---
+
 ## [0.1.0] - 2026-01-08
 
 ### Added
@@ -63,6 +122,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 0.2.0 | 2026-01-09 | Content API integration, data app, retrieval tools |
 | 0.1.0 | 2026-01-08 | Initial alpha release |
 
 ---

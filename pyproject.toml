@@ -1,6 +1,6 @@
 [project]
 name = "cogsol"
-version = "0.1.0"
+version = "0.2.0"
 description = "CogSol agent-first framework (alpha)"
 authors = [{ name = "Cognitive Solutions" }]
 readme = "README.md"

@@ -6,6 +6,7 @@ This document provides a comprehensive overview of the CogSol framework's intern
 
 - [High-Level Architecture](#high-level-architecture)
 - [Package Structure](#package-structure)
+- [Two-Application Design](#two-application-design)
 - [Component Deep Dive](#component-deep-dive)
 - [Data Flow](#data-flow)
 - [State Management](#state-management)
@@ -24,18 +25,25 @@ This document provides a comprehensive overview of the CogSol framework's intern
 │  │   CLI Layer   │────>│  Core Layer   │────>│      API Layer            │  │
 │  │               │     │               │     │                           │  │
 │  │ cogsol-admin  │     │ loader.py     │     │  CogSolClient             │  │
-│  │ manage.py     │     │ migrations.py │     │  REST API calls           │  │
-│  │ commands/*    │     │ management.py │     │                           │  │
+│  │ manage.py     │     │ migrations.py │     │  - Cognitive API          │  │
+│  │ commands/*    │     │ management.py │     │  - Content API            │  │
 │  └───────────────┘     └───────────────┘     └───────────────────────────┘  │
 │         │                     │                           │                 │
 │         ▼                     ▼                           ▼                 │
 │  ┌───────────────┐     ┌───────────────┐     ┌───────────────────────────┐  │
-│  │  Agent Layer  │     │ Migration DB  │     │    Remote CogSol API      │  │
+│  │  Agent Layer  │     │ Migration DB  │     │    Remote CogSol APIs     │  │
 │  │               │     │               │     │                           │  │
-│  │ BaseAgent     │     │ .applied.json │     │  /assistants/             │  │
-│  │ BaseTool      │     │ .state.json   │     │  /tools/scripts/          │  │
-│  │ Prompts       │     │ *.py files    │     │  /chats/                  │  │
-│  └───────────────┘     └───────────────┘     └───────────────────────────┘  │
+│  │ BaseAgent     │     │ .applied.json │     │  Cognitive API:           │  │
+│  │ BaseTool      │     │ .state.json   │     │  - /assistants/           │  │
+│  │ BaseRetrieval │     │ *.py files    │     │  - /tools/scripts/        │  │
+│  │ BaseTopic     │     │               │     │  - /tools/retrievals/     │  │
+│  │ Prompts       │     │               │     │                           │  │
+│  └───────────────┘     └───────────────┘     │  Content API:             │  │
+│                                              │  - /nodes/                │  │
+│                                              │  - /retrievals/           │  │
+│                                              │  - /documents/            │  │
+│                                              │  - /reference_formatters/ │  │
+│                                              └───────────────────────────┘  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -46,8 +54,8 @@ This document provides a comprehensive overview of the CogSol framework's intern
 |-------|---------|-----------|
 | **CLI Layer** | Command-line interface and user interaction | `cogsol_admin.py`, `commands/*.py` |
 | **Core Layer** | Business logic, module loading, state management | `loader.py`, `migrations.py`, `management.py` |
-| **Agent Layer** | Agent and tool abstractions | `agents/__init__.py`, `tools/__init__.py` |
-| **API Layer** | Communication with CogSol remote APIs | `api.py` |
+| **Agent Layer** | Agent, tool, and content abstractions | `agents/__init__.py`, `tools/__init__.py`, `content/__init__.py` |
+| **API Layer** | Communication with CogSol Cognitive and Content APIs | `api.py` |
 | **Migration DB** | Local state persistence (JSON files) | `.applied.json`, `.state.json` |
 
 ---
@@ -63,11 +71,14 @@ cogsol/
 │   └── __init__.py          # BaseAgent, genconfigs, optimizations
 │
 ├── tools/                   # Tool abstractions
-│   └── __init__.py          # BaseTool, BaseFAQ, etc.
+│   └── __init__.py          # BaseTool, BaseFAQ, BaseRetrievalTool, etc.
+│
+├── content/                 # Content API abstractions
+│   └── __init__.py          # BaseTopic, BaseRetrieval, BaseReferenceFormatter, etc.
 │
 ├── core/                    # Core functionality
 │   ├── __init__.py
-│   ├── api.py               # CogSolClient for API communication
+│   ├── api.py               # CogSolClient for Cognitive & Content API
 │   ├── env.py               # Environment variable loading
 │   ├── loader.py            # Module introspection and definition collection
 │   ├── management.py        # Command dispatcher
@@ -84,15 +95,59 @@ cogsol/
 │       ├── __init__.py
 │       ├── chat.py          # Interactive chat command
 │       ├── importagent.py   # Import from API command
+│       ├── ingest.py        # Document ingestion command
 │       ├── makemigrations.py # Generate migrations command
 │       ├── migrate.py       # Apply migrations command
 │       ├── startagent.py    # Create agent scaffold command
-│       └── startproject.py  # Create project scaffold command
+│       ├── startproject.py  # Create project scaffold command
+│       ├── starttopic.py    # Create topic scaffold command
+│       └── topics.py        # List topics command
 │
 └── bin/                     # Entry points
     ├── __init__.py
     └── cogsol_admin.py      # Global CLI entry point
 ```
+
+---
+
+## Two-Application Design
+
+CogSol uses a **two-application architecture** that separates agent logic from document management:
+
+```
+your_project/
+├── agents/                  # Cognitive API entities
+│   ├── tools.py             # Custom tool definitions
+│   ├── searches.py          # Retrieval tool definitions
+│   ├── migrations/          # Agent/tool migrations
+│   └── <agent>/             # Per-agent packages
+│       ├── agent.py
+│       ├── faqs.py
+│       ├── fixed.py
+│       ├── lessons.py
+│       └── prompts/
+│
+└── data/                    # Content API entities
+    ├── formatters.py        # Reference formatter definitions
+    ├── ingestion.py         # Ingestion configuration definitions
+    ├── retrievals.py        # Retrieval configuration definitions
+    ├── migrations/          # Topic/retrieval migrations
+    └── <topic>/             # Per-topic folders (can be nested)
+        ├── __init__.py      # Topic definition
+        └── metadata.py      # Metadata configurations
+```
+
+### Why Two Applications?
+
+| Application | API | Purpose |
+|-------------|-----|---------|
+| `agents/` | Cognitive API | AI assistants, tools, FAQs, lessons, fixed responses |
+| `data/` | Content API | Document organization, semantic search, retrievals |
+
+This separation:
+- Allows independent versioning of agent logic and document structure
+- Enables different teams to manage agents vs content
+- Provides clear boundaries between AI behavior and knowledge base
 
 ---
 
@@ -130,6 +185,9 @@ def _command_registry() -> dict[str, str]:
     return {
         "startproject": "cogsol.management.commands.startproject",
         "startagent": "cogsol.management.commands.startagent",
+        "starttopic": "cogsol.management.commands.starttopic",
+        "topics": "cogsol.management.commands.topics",
+        "ingest": "cogsol.management.commands.ingest",
         "importagent": "cogsol.management.commands.importagent",
         "makemigrations": "cogsol.management.commands.makemigrations",
         "migrate": "cogsol.management.commands.migrate",
@@ -178,12 +236,25 @@ def collect_definitions(project_path: Path, app_name: str = "agents"):
                     "meta": {...}
                 }
             },
-            "tools": {
-                "ToolName": {
-                    "fields": {...},
-                    "meta": {...}
-                }
-            }
+            "tools": {...},
+            "retrieval_tools": {...},
+            "faqs": {...},
+            "fixed_responses": {...},
+            "lessons": {...}
+        }
+    """
+
+def collect_content_definitions(project_path: Path, app_name: str = "data"):
+    """
+    Import data/ modules and return structured content definitions.
+    
+    Returns:
+        {
+            "topics": {...},
+            "formatters": {...},
+            "ingestion_configs": {...},
+            "retrievals": {...},
+            "metadata_configs": {...}
         }
     """
 ```
@@ -192,19 +263,22 @@ Key functions:
 
 | Function | Purpose |
 |----------|---------|
-| `collect_definitions()` | Extract serializable definitions from code |
+| `collect_definitions()` | Extract agent/tool definitions from `agents/` |
+| `collect_content_definitions()` | Extract topic/retrieval definitions from `data/` |
 | `collect_classes()` | Return actual class objects (for runtime use) |
+| `collect_content_classes()` | Return actual content class objects |
 | `serialize_value()` | Convert Python objects to JSON-safe values |
 | `_extract_tool_params()` | Extract tool parameter metadata from signatures |
 | `_import_module()` | Dynamically import project modules |
 
 ### 5. Migration System
 
-The migration system tracks changes to agents and tools:
+The migration system tracks changes to agents, tools, topics, and retrievals:
 
 #### Migration Operations (db/migrations.py)
 
 ```python
+# Cognitive API operations
 class CreateAgent(CreateDefinition):
     """Create a new agent in state."""
     entity = "agents"
@@ -213,12 +287,33 @@ class CreateTool(CreateDefinition):
     """Create a new tool in state."""
     entity = "tools"
 
+class CreateRetrievalTool(CreateDefinition):
+    """Create a new retrieval tool in state."""
+    entity = "retrieval_tools"
+
+# Content API operations
+class CreateTopic(CreateDefinition):
+    """Create a new topic (node) in state."""
+    entity = "topics"
+
+class CreateMetadataConfig(CreateDefinition):
+    """Create a metadata configuration for a topic."""
+    entity = "metadata_configs"
+
+class CreateReferenceFormatter(CreateDefinition):
+    """Create a reference formatter in state."""
+    entity = "formatters"
+
+class CreateRetrieval(CreateDefinition):
+    """Create a retrieval configuration in state."""
+    entity = "retrievals"
+
 class AlterField:
     """Modify a field value."""
     model_name: str
     name: str
     value: Any
-    entity: str  # "agents", "tools", etc.
+    entity: str  # "agents", "tools", "topics", etc.
     scope: str   # "fields" or "meta"
 
 class DeleteDefinition:
@@ -233,8 +328,12 @@ class DeleteDefinition:
 def state_from_migrations(migrations_path: Path) -> dict[str, Any]:
     """Replay all migrations to compute current state."""
 
-def diff_states(previous: dict, current: dict) -> list[Any]:
-    """Compare states and generate operations for changes."""
+def diff_states(previous: dict, current: dict, app: str = "agents") -> list[Any]:
+    """Compare states and generate operations for changes.
+    
+    Args:
+        app: Either "agents" (Cognitive API) or "data" (Content API)
+    """
 
 def iter_migration_files(migrations_path: Path) -> Iterable[Path]:
     """List migration files in order."""
@@ -245,7 +344,7 @@ def iter_migration_files(migrations_path: Path) -> Iterable[Path]:
 Generated migration files follow this structure:
 
 ```python
-# Generated by CogSol 0.1.0 on 2024-01-15 10:30
+# Generated by CogSol 0.2.0 on 2026-01-08 10:30
 from cogsol.db import migrations
 
 class Migration(migrations.Migration):
@@ -266,33 +365,57 @@ class Migration(migrations.Migration):
 
 ### 6. API Client (core/api.py)
 
-Communicates with the remote CogSol API:
+Communicates with both the Cognitive API and Content API:
 
 ```python
 @dataclass
 class CogSolClient:
-    base_url: str
+    base_url: str                          # Cognitive API base URL
     token: Optional[str] = None
+    content_base_url: Optional[str] = None # Content API base URL
     
     # Core request method
-    def request(self, method: str, path: str, payload: Optional[dict] = None) -> Any
+    def request(self, method: str, path: str, payload: Optional[dict] = None,
+                use_content_api: bool = False) -> Any
     
-    # Resource operations
+    # Multipart file upload (for document ingestion)
+    def request_multipart(self, method: str, path: str, fields: dict,
+                          files: dict[str, Path], use_content_api: bool = False) -> Any
+    
+    # Cognitive API - Assistants
     def upsert_assistant(self, *, remote_id: Optional[int], payload: dict) -> int
     def upsert_script(self, *, remote_id: Optional[int], payload: dict) -> int
+    def upsert_retrieval_tool(self, *, remote_id: Optional[int], payload: dict) -> int
     def upsert_common_question(self, *, assistant_id: int, remote_id: Optional[int], payload: dict) -> int
     def upsert_fixed_response(self, *, assistant_id: int, remote_id: Optional[int], payload: dict) -> int
     def upsert_lesson(self, *, assistant_id: int, remote_id: Optional[int], payload: dict) -> int
     
-    # Chat operations
+    # Cognitive API - Chat
     def create_chat(self, assistant_id: int, message: Optional[str] = None) -> Any
     def send_message(self, chat_id: int, message: str) -> Any
     def get_chat(self, chat_id: int) -> Any
     
-    # Delete operations
-    def delete_assistant(self, assistant_id: int) -> None
-    def delete_script(self, script_id: int) -> None
-    # ... etc.
+    # Content API - Nodes (Topics)
+    def list_nodes(self, page: int = 1, page_size: int = 100) -> Any
+    def get_node(self, node_id: int) -> Any
+    def upsert_node(self, *, remote_id: Optional[int], payload: dict) -> int
+    def delete_node(self, node_id: int) -> None
+    
+    # Content API - Retrievals
+    def list_retrievals(self) -> Any
+    def upsert_retrieval(self, *, remote_id: Optional[int], payload: dict) -> int
+    def retrieve_similar_blocks(self, retrieval_id: int, question: str) -> Any
+    
+    # Content API - Documents
+    def upload_document(self, *, file_path: Path, name: str, node_id: int, ...) -> int
+    def upload_documents_bulk(self, *, file_paths: list[Path], node_id: int, ...) -> list[int]
+    
+    # Content API - Reference Formatters
+    def upsert_reference_formatter(self, *, remote_id: Optional[int], payload: dict) -> int
+    
+    # Content API - Metadata Configs
+    def create_metadata_config(self, *, node_id: int, payload: dict) -> int
+    def update_metadata_config(self, config_id: int, payload: dict) -> Any
 ```
 
 ### 7. Agent Abstractions (agents/__init__.py)
@@ -357,6 +480,17 @@ class BaseTool:
         """Override to implement tool logic."""
         raise NotImplementedError
 
+class BaseRetrievalTool:
+    """Tool that queries Content API retrievals."""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    parameters: list[dict[str, Any]] = []
+    retrieval: Optional[type] = None  # Reference to a BaseRetrieval class
+    show_tool_message: bool = False
+    show_assistant_message: bool = False
+    edit_available: bool = True
+    answer: bool = True
+
 class BaseFAQ:
     question: Optional[str] = None
     answer: Optional[str] = None
@@ -376,6 +510,68 @@ def tool_params(**params):
         return func
     return decorator
 ```
+
+### 9. Content Abstractions (content/__init__.py)
+
+```python
+class BaseTopic:
+    """Represents a node in the Content API."""
+    name: Optional[str] = None
+    delete_orphaned_metadata: bool = False
+
+    class Meta:
+        description: Optional[str] = None
+
+class BaseMetadataConfig:
+    """Metadata field configuration for a topic."""
+    name: Optional[str] = None
+    type: MetadataType = MetadataType.STRING
+    possible_values: list[str] = []
+    default_value: Optional[str] = None
+    format: Optional[str] = None
+    filtrable: bool = False
+    required: bool = False
+    in_embedding: bool = False
+    in_retrieval: bool = True
+
+class BaseReferenceFormatter:
+    """Formats document block references."""
+    name: Optional[str] = None
+    description: Optional[str] = ""
+    expression: Optional[str] = None
+
+class BaseIngestionConfig:
+    """Configuration for document processing."""
+    name: Optional[str] = None
+    default_topic: Optional[type] = None
+    pdf_parsing_mode: PDFParsingMode = PDFParsingMode.BOTH
+    chunking_mode: ChunkingMode = ChunkingMode.LANGCHAIN
+    max_size_block: int = 1500
+    chunk_overlap: int = 0
+    separators: list[str] = []
+    ocr: bool = False
+    additional_prompt_instructions: str = ""
+    assign_paths_as_metadata: bool = False
+
+class BaseRetrieval:
+    """Semantic search configuration."""
+    name: Optional[str] = None
+    topic: Optional[type] = None
+    num_refs: int = 10
+    max_msg_length: int = 570
+    reordering: bool = False
+    strategy_reordering: Optional[ReorderingStrategy] = None
+    retrieval_window: int = 20
+    reordering_metadata: Optional[str] = None
+    fixed_blocks_reordering: int = 3
+    previous_blocks: float = 0
+    next_blocks: float = 0
+    contingency_for_embedding: bool = True
+    threshold_similarity: float = 0.75
+    formatters: dict[str, type] = {}
+    filters: list[type] = []
+```
+
 
 ---
 
@@ -455,9 +651,9 @@ def tool_params(**params):
 
 ### State Files
 
-The framework maintains two JSON files in `agents/migrations/`:
+The framework maintains two JSON files in each app's `migrations/` folder:
 
-#### `.applied.json`
+#### `agents/migrations/.applied.json`
 
 Tracks which migrations have been applied:
 
@@ -469,7 +665,7 @@ Tracks which migrations have been applied:
 ]
 ```
 
-#### `.state.json`
+#### `agents/migrations/.state.json`
 
 Stores current state and remote ID mappings:
 
@@ -479,10 +675,9 @@ Stores current state and remote ID mappings:
         "agents": {
             "CustomerSupportAgent": {
                 "fields": {
-                    "system_prompt": "support.md",
+                    "system_prompt": "You are a helpful assistant...",
                     "temperature": 0.3,
-                    "tools": ["SearchTool"],
-                    ...
+                    "tools": ["SearchTool", "DocsSearch"]
                 },
                 "meta": {
                     "name": "CustomerSupportAgent",
@@ -492,13 +687,15 @@ Stores current state and remote ID mappings:
         },
         "tools": {
             "SearchTool": {
+                "fields": {...}
+            }
+        },
+        "retrieval_tools": {
+            "DocsSearch": {
                 "fields": {
-                    "name": "SearchTool",
-                    "description": "Search the knowledge base",
-                    "parameters": {...},
-                    "__code__": "..."
-                },
-                "meta": {}
+                    "name": "docs_search",
+                    "retrieval": "product_docs_search"
+                }
             }
         },
         "faqs": {},
@@ -506,15 +703,54 @@ Stores current state and remote ID mappings:
         "lessons": {}
     },
     "remote": {
-        "agents": {
-            "CustomerSupportAgent": 42
+        "agents": {"CustomerSupportAgent": 42},
+        "tools": {"SearchTool": 15},
+        "retrieval_tools": {"DocsSearch": 23}
+    }
+}
+```
+
+#### `data/migrations/.state.json`
+
+Stores Content API state and remote ID mappings:
+
+```json
+{
+    "state": {
+        "topics": {
+            "product_docs": {
+                "fields": {"name": "product_docs"},
+                "meta": {"description": "Product documentation"}
+            },
+            "product_docs/tutorials": {
+                "fields": {"name": "tutorials"},
+                "meta": {}
+            }
         },
-        "tools": {
-            "SearchTool": 15
+        "formatters": {
+            "detailed_formatter": {
+                "fields": {
+                    "name": "detailed_formatter",
+                    "expression": "[{name}, p.{page_num}]"
+                }
+            }
         },
-        "faqs": {},
-        "fixed_responses": {},
-        "lessons": {}
+        "retrievals": {
+            "product_docs_search": {
+                "fields": {
+                    "name": "product_docs_search",
+                    "topic": "product_docs",
+                    "num_refs": 10
+                }
+            }
+        },
+        "ingestion_configs": {},
+        "metadata_configs": {}
+    },
+    "remote": {
+        "topics": {"product_docs": 1, "product_docs/tutorials": 2},
+        "formatters": {"detailed_formatter": 5},
+        "retrievals": {"product_docs_search": 10}
     }
 }
 ```

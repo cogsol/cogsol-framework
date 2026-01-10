@@ -8,10 +8,11 @@ from pathlib import Path
 from typing import Any, Optional, cast
 
 from cogsol.agents import genconfigs
+from cogsol.content import BaseRetrieval
 from cogsol.core import migrations as migutils
 from cogsol.core.api import CogSolAPIError, CogSolClient
 from cogsol.core.env import load_dotenv
-from cogsol.core.loader import _extract_tool_params, collect_classes
+from cogsol.core.loader import _extract_tool_params, collect_classes, collect_content_classes
 from cogsol.db import migrations
 from cogsol.management.base import BaseCommand
 from cogsol.prompts import Prompt
@@ -43,82 +44,115 @@ class Command(BaseCommand):
     help = "Apply migrations for the CogSol project."
 
     def add_arguments(self, parser):
-        parser.add_argument("app", nargs="?", default="agents", help="App to migrate.")
+        parser.add_argument(
+            "app",
+            nargs="?",
+            default=None,
+            help="App to migrate (agents, data, or both when omitted).",
+        )
 
     def handle(self, project_path: Path | None, **options: Any) -> int:
         assert project_path is not None, "project_path is required"
-        app = str(options.get("app") or "agents")
-        migrations_path = project_path / app / "migrations"
-        applied_path = migrations_path / ".applied.json"
-        state_path = migrations_path / ".state.json"
-
-        if not migrations_path.exists():
-            print(f"No migrations folder found for app '{app}'.")
-            return 1
-
-        migration_files = list(migutils.iter_migration_files(migrations_path))
-        if not migration_files:
-            print("No migrations to apply.")
-            return 0
+        app = options.get("app")
+        apps = [str(app)] if app else ["agents", "data"]
 
         load_dotenv(project_path / ".env")
         api_base = self._env("COGSOL_API_BASE")
         api_token = self._env("COGSOL_API_TOKEN", required=False)
+        content_base = self._env("COGSOL_CONTENT_API_BASE", required=False) or api_base
         if not api_base:
             print("COGSOL_API_BASE is required in .env to run migrations against CogSol APIs.")
             return 1
 
-        applied = migutils.load_applied(applied_path)
-        state, remote_ids = self._load_state(state_path)
+        exit_code = 0
+        for app_name in apps:
+            migrations_path = project_path / app_name / "migrations"
+            applied_path = migrations_path / ".applied.json"
+            state_path = migrations_path / ".state.json"
 
-        # Rebuild state from already applied migrations to avoid stale cache issues.
-        state = migutils.empty_state()
-        for mf in migration_files:
-            module = migutils.load_migration_module(mf)
-            migration_cls = getattr(module, "Migration", None)
-            if migration_cls is None:
+            if not migrations_path.exists():
+                print(f"No migrations folder found for app '{app_name}'.")
+                exit_code = 1
                 continue
-            migration = migration_cls() if callable(migration_cls) else migration_cls
-            if mf.stem in applied:
-                migrations.apply_operations(state, getattr(migration, "operations", []))
 
-        pending = [mf for mf in migration_files if mf.stem not in applied]
-        if not pending:
-            print("No pending migrations.")
-            return 0
-
-        for mf in pending:
-            module = migutils.load_migration_module(mf)
-            migration_cls = getattr(module, "Migration", None)
-            if migration_cls is None:
-                print(f"Skipping {mf.name}: Migration class not found.")
+            migration_files = list(migutils.iter_migration_files(migrations_path))
+            if not migration_files:
+                print(f"No migrations to apply for app '{app_name}'.")
                 continue
-            migration = migration_cls() if callable(migration_cls) else migration_cls
-            print(f"Applying {app}.{mf.stem}...")
-            migrations.apply_operations(state, getattr(migration, "operations", []))
-            applied.append(mf.stem)
-            print("  Recorded.")
 
-        # Push resulting state to CogSol API.
-        try:
-            class_map = collect_classes(project_path, app)
-            remote_ids = self._sync_with_api(
-                api_base=api_base,
-                api_token=api_token,
-                state=state,
-                remote_ids=remote_ids,
-                class_map=class_map,
-                project_path=project_path,
-                app=app,
-            )
-        except CogSolAPIError as exc:  # pragma: no cover - I/O
-            print(f"API error while applying migrations: {exc}")
-            return 1
+            applied = migutils.load_applied(applied_path)
 
-        self._save_state(state_path, state, remote_ids)
-        migutils.write_applied(applied_path, applied)
-        print(f"Applied {len(pending)} migration(s) and synced with CogSol API.")
-        return 0
+            if app_name == "data":
+                state, remote_ids = self._load_content_state(state_path)
+                state = migutils.empty_content_state()
+            else:
+                state, remote_ids = self._load_state(state_path)
+                state = migutils.empty_state()
+
+            for mf in migration_files:
+                module = migutils.load_migration_module(mf)
+                migration_cls = getattr(module, "Migration", None)
+                if migration_cls is None:
+                    continue
+                migration = migration_cls() if callable(migration_cls) else migration_cls
+                if mf.stem in applied:
+                    migrations.apply_operations(state, getattr(migration, "operations", []))
+
+            pending = [mf for mf in migration_files if mf.stem not in applied]
+            if not pending:
+                print(f"No pending migrations for app '{app_name}'.")
+                continue
+
+            temp_state = copy.deepcopy(state)
+            pending_ops: list[Any] = []
+            for mf in pending:
+                module = migutils.load_migration_module(mf)
+                migration_cls = getattr(module, "Migration", None)
+                if migration_cls is None:
+                    print(f"Skipping {mf.name}: Migration class not found.")
+                    continue
+                migration = migration_cls() if callable(migration_cls) else migration_cls
+                print(f"Applying {app_name}.{mf.stem}...")
+                ops = getattr(migration, "operations", [])
+                pending_ops.extend(ops)
+                migrations.apply_operations(temp_state, ops)
+
+            try:
+                touched = self._touched_entities(pending_ops)
+                if app_name == "data":
+                    class_map = collect_content_classes(project_path, app_name)
+                    remote_ids = self._sync_content_with_api(
+                        api_base=content_base or api_base,
+                        api_token=api_token,
+                        state=temp_state,
+                        remote_ids=remote_ids,
+                        class_map=class_map,
+                        project_path=project_path,
+                        touched=touched,
+                    )
+                else:
+                    class_map = collect_classes(project_path, app_name)
+                    remote_ids = self._sync_with_api(
+                        api_base=api_base,
+                        api_token=api_token,
+                        state=temp_state,
+                        remote_ids=remote_ids,
+                        class_map=class_map,
+                        project_path=project_path,
+                        app=app_name,
+                        touched=touched,
+                    )
+            except CogSolAPIError as exc:  # pragma: no cover - I/O
+                print(f"API error while applying migrations: {exc}")
+                exit_code = 1
+                continue
+
+            applied.extend([mf.stem for mf in pending])
+            self._save_state(state_path, temp_state, remote_ids)
+            migutils.write_applied(applied_path, applied)
+            print(f"Applied {len(pending)} migration(s) for app '{app_name}'.")
+
+        return exit_code
 
     # ------------------------------------------------------------------ helpers
     def _env(self, key: str, required: bool = True) -> Optional[str]:
@@ -150,10 +184,301 @@ class Command(BaseCommand):
         return {
             "agents": {},
             "tools": {},
+            "retrieval_tools": {},
             "lessons": {},
             "faqs": {},
             "fixed_responses": {},
         }
+
+    def _empty_content_remote(self) -> dict[str, Any]:
+        return {
+            "topics": {},
+            "formatters": {},
+            "ingestion_configs": {},
+            "retrievals": {},
+            "metadata_configs": {},
+        }
+
+    def _touched_entities(self, operations: list[Any]) -> dict[str, set[str]]:
+        touched: dict[str, set[str]] = {}
+        for op in operations:
+            entity = getattr(op, "entity", None)
+            if not entity:
+                continue
+            name = getattr(op, "name", None)
+            if isinstance(op, migrations.AlterField):
+                name = getattr(op, "model_name", None)
+            if not name:
+                continue
+            touched.setdefault(entity, set()).add(str(name))
+        return touched
+
+    def _load_content_state(self, state_path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+        if not state_path.exists():
+            return migutils.empty_content_state(), self._empty_content_remote()
+        try:
+            data = json.loads(state_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return migutils.empty_content_state(), self._empty_content_remote()
+
+        if "state" in data and "remote" in data:
+            return data["state"], data["remote"]
+        return data, self._empty_content_remote()
+
+    def _sync_content_with_api(
+        self,
+        *,
+        api_base: str,
+        api_token: Optional[str],
+        state: dict[str, Any],
+        remote_ids: dict[str, Any],
+        class_map: dict[str, dict[str, type]],
+        project_path: Path,
+        touched: Optional[dict[str, set[str]]] = None,
+    ) -> dict[str, Any]:
+        """Sync Content API entities (topics, formatters, retrievals) with the API."""
+        client = CogSolClient(api_base, token=api_token, content_base_url=api_base)
+        created: list[tuple[str, Optional[int], int]] = []
+        new_remote = copy.deepcopy(remote_ids)
+
+        try:
+            # Upsert topics (nodes) - need to handle parent relationships
+            topic_id_map: dict[str, int] = {}  # path -> node_id
+
+            # Sort topics by path depth to create parents first
+            topics = list(state.get("topics", {}).items())
+            topics.sort(key=lambda x: x[0].count("/"))
+
+            for topic_path, definition in topics:
+                if touched is not None and topic_path not in touched.get("topics", set()):
+                    continue
+                fields = definition.get("fields", {})
+                meta = definition.get("meta", {})
+                name = fields.get("name") or topic_path.split("/")[-1]
+                description = fields.get("description", "") or meta.get("description", "")
+                delete_orphaned_metadata = fields.get("delete_orphaned_metadata")
+
+                # Determine parent_id
+                parent_id = None
+                path_parts = topic_path.split("/")
+                if len(path_parts) > 1:
+                    parent_path = "/".join(path_parts[:-1])
+                    parent_id = topic_id_map.get(parent_path) or new_remote.get("topics", {}).get(
+                        parent_path
+                    )
+
+                payload = {
+                    "name": name,
+                    "description": description,
+                    "parent": parent_id,
+                }
+                if delete_orphaned_metadata is not None:
+                    payload["delete_orphaned_metadata"] = bool(delete_orphaned_metadata)
+
+                remote_id = new_remote.get("topics", {}).get(topic_path)
+                new_id = client.upsert_node(remote_id=remote_id, payload=payload)
+
+                if not remote_id:
+                    created.append(("topic", None, new_id))
+
+                topic_id_map[topic_path] = new_id
+                new_remote.setdefault("topics", {})[topic_path] = new_id
+
+            # Upsert reference formatters
+            for fmt_name, definition in state.get("formatters", {}).items():
+                if touched is not None and fmt_name not in touched.get("formatters", set()):
+                    continue
+                fields = definition.get("fields", {})
+                payload = {
+                    "name": fields.get("name", fmt_name),
+                    "description": fields.get("description", ""),
+                    "expression": fields.get("expression", ""),
+                }
+
+                remote_id = new_remote.get("formatters", {}).get(fmt_name)
+                new_id = client.upsert_reference_formatter(remote_id=remote_id, payload=payload)
+
+                if not remote_id:
+                    created.append(("formatter", None, new_id))
+                new_remote.setdefault("formatters", {})[fmt_name] = new_id
+
+            # Upsert retrievals
+            for ret_name, definition in state.get("retrievals", {}).items():
+                if touched is not None and ret_name not in touched.get("retrievals", set()):
+                    continue
+                fields = definition.get("fields", {})
+
+                # Resolve topic to node ID
+                node_id = None
+                topic_name = fields.get("topic")
+                if topic_name:
+                    node_id = topic_id_map.get(topic_name) or new_remote.get("topics", {}).get(
+                        topic_name
+                    )
+
+                retrieval_payload: dict[str, Any] = {
+                    "description": fields.get("name", ret_name),
+                }
+
+                if node_id is not None:
+                    retrieval_payload["node"] = node_id
+
+                # Only include fields explicitly defined in class
+                def _set_if_defined(
+                    key: str,
+                    *,
+                    _fields: dict[str, Any] = fields,
+                    _payload: dict[str, Any] = retrieval_payload,
+                ) -> None:
+                    if key in _fields:
+                        value = _fields.get(key)
+                        if value is not None:
+                            _payload[key] = value
+
+                _set_if_defined("num_refs")
+                _set_if_defined("max_msg_length")
+                _set_if_defined("reordering")
+                _set_if_defined("strategy_reordering")
+                _set_if_defined("retrieval_window")
+                _set_if_defined("reordering_metadata")
+                _set_if_defined("fixed_blocks_reordering")
+                _set_if_defined("previous_blocks")
+                _set_if_defined("next_blocks")
+                _set_if_defined("contingency_for_embedding")
+                _set_if_defined("threshold_similarity")
+                _set_if_defined("filters")
+
+                if (
+                    "strategy_reordering" in retrieval_payload
+                    and "reordering_metadata" not in retrieval_payload
+                ):
+                    raise CogSolAPIError(
+                        "reordering_metadata is required when strategy_reordering is set "
+                        f"for retrieval '{ret_name}'."
+                    )
+
+                if "formatters" in fields:
+                    formatters_value = fields.get("formatters")
+                    formatters_payload: list[Any] = []
+                    if isinstance(formatters_value, dict):
+                        for doc_type, formatter in formatters_value.items():
+                            fmt_key = formatter
+                            if hasattr(formatter, "__name__"):
+                                fmt_key = getattr(formatter, "name", None) or formatter.__name__
+                            fmt_id = new_remote.get("formatters", {}).get(fmt_key)
+                            if fmt_id is None:
+                                raise CogSolAPIError(
+                                    "Formatter must be migrated before use in retrieval. "
+                                    f"Missing formatter id for '{fmt_key}' in '{ret_name}'."
+                                )
+                            formatters_payload.append(
+                                {"doc_type": doc_type, "formatter_id": int(fmt_id)}
+                            )
+                    elif isinstance(formatters_value, list):
+                        for item in formatters_value:
+                            if not isinstance(item, dict):
+                                raise CogSolAPIError(
+                                    "formatters must be dicts with doc_type and formatter_id. "
+                                    f"Fix retrieval '{ret_name}'."
+                                )
+                            if "doc_type" not in item or "formatter_id" not in item:
+                                raise CogSolAPIError(
+                                    "formatters entries must include doc_type and formatter_id. "
+                                    f"Fix retrieval '{ret_name}'."
+                                )
+                            if not isinstance(item.get("formatter_id"), int):
+                                raise CogSolAPIError(
+                                    "formatter_id must be an integer (remote id). "
+                                    f"Fix retrieval '{ret_name}'."
+                                )
+                            formatters_payload.append(item)
+                    elif formatters_value:
+                        raise CogSolAPIError(
+                            "formatters must be a dict or list of dicts. "
+                            f"Fix retrieval '{ret_name}'."
+                        )
+                    retrieval_payload["formatters"] = formatters_payload
+
+                remote_id = new_remote.get("retrievals", {}).get(ret_name)
+                new_id = client.upsert_retrieval(remote_id=remote_id, payload=retrieval_payload)
+
+                if not remote_id:
+                    created.append(("retrieval", None, new_id))
+                new_remote.setdefault("retrievals", {})[ret_name] = new_id
+
+            # Upsert ingestion configs
+            for cfg_name, definition in state.get("ingestion_configs", {}).items():
+                if touched is not None and cfg_name not in touched.get("ingestion_configs", set()):
+                    continue
+                fields = definition.get("fields", {})
+                payload = {"name": fields.get("name", cfg_name), **fields}
+
+                remote_id = new_remote.get("ingestion_configs", {}).get(cfg_name)
+                new_id = client.upsert_ingestion_config(remote_id=remote_id, payload=payload)
+
+                if not remote_id:
+                    created.append(("ingestion_config", None, new_id))
+                new_remote.setdefault("ingestion_configs", {})[cfg_name] = new_id
+
+            # Upsert metadata configs
+            for cfg_key, definition in state.get("metadata_configs", {}).items():
+                if touched is not None and cfg_key not in touched.get("metadata_configs", set()):
+                    continue
+                fields = definition.get("fields", {})
+                topic_path = definition.get("topic", "")
+                cfg_name = fields.get("name")
+                if not topic_path or not cfg_name:
+                    continue
+                node_id = topic_id_map.get(topic_path) or new_remote.get("topics", {}).get(
+                    topic_path
+                )
+                if not node_id:
+                    continue
+
+                cfg_payload = {
+                    "name": cfg_name,
+                    "type": fields.get("type", "STRING"),
+                    "possible_values": fields.get("possible_values", []),
+                    "default_value": fields.get("default_value"),
+                    "format": fields.get("format"),
+                    "filtrable": fields.get("filtrable", False),
+                    "required": fields.get("required", False),
+                    "in_embedding": fields.get("in_embedding", False),
+                    "in_retrieval": fields.get("in_retrieval", True),
+                }
+                if cfg_payload["required"] and cfg_payload.get("default_value") is None:
+                    raise CogSolAPIError(
+                        "Default value is required for required metadata configs. "
+                        f"Set default_value for '{cfg_key}'."
+                    )
+
+                cfg_remote_id = new_remote.get("metadata_configs", {}).get(cfg_key)
+                if cfg_remote_id:
+                    client.update_metadata_config(cfg_remote_id, cfg_payload)
+                else:
+                    new_cfg_id = client.create_metadata_config(node_id=node_id, payload=cfg_payload)
+                    created.append(("metadata_config", node_id, new_cfg_id))
+                    new_remote.setdefault("metadata_configs", {})[cfg_key] = new_cfg_id
+
+            return new_remote
+
+        except Exception:
+            # Rollback creations in reverse order
+            for kind, parent_id, obj_id in reversed(created):
+                try:
+                    if kind == "topic":
+                        client.delete_node(obj_id)
+                    elif kind == "metadata_config" and parent_id is not None:
+                        client.delete_metadata_config(parent_id, obj_id)
+                    elif kind == "formatter":
+                        client.delete_reference_formatter(obj_id)
+                    elif kind == "ingestion_config":
+                        client.delete_ingestion_config(obj_id)
+                    elif kind == "retrieval":
+                        client.delete_retrieval(obj_id)
+                except Exception:
+                    continue
+            raise
 
     def _sync_with_api(
         self,
@@ -165,6 +490,7 @@ class Command(BaseCommand):
         class_map: dict[str, dict[str, type]],
         project_path: Path,
         app: str,
+        touched: Optional[dict[str, set[str]]] = None,
     ) -> dict[str, Any]:
         client = CogSolClient(api_base, token=api_token)
         created: list[tuple[str, Optional[int], int]] = []
@@ -173,6 +499,8 @@ class Command(BaseCommand):
         try:
             # Upsert script tools first (shared resources).
             for tool_name, definition in state.get("tools", {}).items():
+                if touched is not None and tool_name not in touched.get("tools", set()):
+                    continue
                 cls = cast(Optional[type[BaseTool]], class_map.get("tools", {}).get(tool_name))
                 payload = self._tool_payload(tool_name, definition, cls)
                 remote_id = new_remote.get("tools", {}).get(tool_name)
@@ -189,8 +517,32 @@ class Command(BaseCommand):
                     if explicit_name:
                         new_remote["tools"][explicit_name] = new_id
 
+            # Upsert retrieval tools.
+            for tool_name, definition in state.get("retrieval_tools", {}).items():
+                if touched is not None and tool_name not in touched.get("retrieval_tools", set()):
+                    continue
+                cls = class_map.get("retrieval_tools", {}).get(tool_name)
+                payload = self._retrieval_tool_payload(
+                    tool_name=tool_name,
+                    definition=definition,
+                    cls=cls,
+                    project_path=project_path,
+                )
+                remote_id = new_remote.get("retrieval_tools", {}).get(tool_name)
+                new_id = client.upsert_retrieval_tool(remote_id=remote_id, payload=payload)
+                if not remote_id:
+                    created.append(("retrieval_tool", None, new_id))
+                new_remote.setdefault("retrieval_tools", {})[tool_name] = new_id
+                if cls is not None:
+                    new_remote["retrieval_tools"][cls.__name__] = new_id
+                    explicit_name = getattr(cls, "name", None)
+                    if explicit_name:
+                        new_remote["retrieval_tools"][explicit_name] = new_id
+
             # Upsert agents.
             for agent_name, definition in state.get("agents", {}).items():
+                if touched is not None and agent_name not in touched.get("agents", set()):
+                    continue
                 cls = class_map.get("agents", {}).get(agent_name)
                 payload = self._assistant_payload(
                     agent_name=agent_name,
@@ -208,7 +560,32 @@ class Command(BaseCommand):
                 new_remote.setdefault("agents", {})[agent_name] = new_id
 
             # Upsert FAQs (common questions), fixed responses, lessons per agent.
+            sync_related = True
+            faq_filter: dict[str, set[str]] = {}
+            fixed_filter: dict[str, set[str]] = {}
+            lesson_filter: dict[str, set[str]] = {}
+            if touched is not None:
+                for key in touched.get("faqs", set()):
+                    agent, _, name = key.partition("::")
+                    if agent and name:
+                        faq_filter.setdefault(agent, set()).add(name)
+                for key in touched.get("fixed_responses", set()):
+                    agent, _, name = key.partition("::")
+                    if agent and name:
+                        fixed_filter.setdefault(agent, set()).add(name)
+                for key in touched.get("lessons", set()):
+                    agent, _, name = key.partition("::")
+                    if agent and name:
+                        lesson_filter.setdefault(agent, set()).add(name)
+                sync_related = bool(faq_filter or fixed_filter or lesson_filter)
+            if not sync_related:
+                return new_remote
+
+            agents_filter = set(faq_filter) | set(fixed_filter) | set(lesson_filter)
+
             for agent_name, agent_cls in class_map.get("agents", {}).items():
+                if agents_filter and agent_name not in agents_filter:
+                    continue
                 assistant_id = new_remote.get("agents", {}).get(agent_name)
                 if not assistant_id:
                     continue
@@ -218,6 +595,8 @@ class Command(BaseCommand):
 
                 for faq_obj in getattr(agent_cls, "faqs", []) or []:
                     payload = self._faq_payload(faq_obj)
+                    if faq_filter.get(agent_name) and payload["name"] not in faq_filter[agent_name]:
+                        continue
                     remote_id = new_remote["faqs"][agent_name].get(payload["name"])
                     new_id = client.upsert_common_question(
                         assistant_id=assistant_id,
@@ -228,29 +607,41 @@ class Command(BaseCommand):
                         created.append(("faq", assistant_id, new_id))
                     new_remote["faqs"][agent_name][payload["name"]] = new_id
 
-                for fx_obj in getattr(agent_cls, "fixed_responses", []) or []:
-                    payload = self._fixed_payload(fx_obj)
-                    remote_id = new_remote["fixed_responses"][agent_name].get(payload["name"])
-                    new_id = client.upsert_fixed_response(
-                        assistant_id=assistant_id,
-                        remote_id=remote_id,
-                        payload=payload,
-                    )
-                    if not remote_id:
-                        created.append(("fixed", assistant_id, new_id))
-                    new_remote["fixed_responses"][agent_name][payload["name"]] = new_id
+                if fixed_filter:
+                    for fx_obj in getattr(agent_cls, "fixed_responses", []) or []:
+                        payload = self._fixed_payload(fx_obj)
+                        if (
+                            fixed_filter.get(agent_name)
+                            and payload["name"] not in fixed_filter[agent_name]
+                        ):
+                            continue
+                        remote_id = new_remote["fixed_responses"][agent_name].get(payload["name"])
+                        new_id = client.upsert_fixed_response(
+                            assistant_id=assistant_id,
+                            remote_id=remote_id,
+                            payload=payload,
+                        )
+                        if not remote_id:
+                            created.append(("fixed", assistant_id, new_id))
+                        new_remote["fixed_responses"][agent_name][payload["name"]] = new_id
 
-                for lesson_obj in getattr(agent_cls, "lessons", []) or []:
-                    payload = self._lesson_payload(lesson_obj)
-                    remote_id = new_remote["lessons"][agent_name].get(payload["name"])
-                    new_id = client.upsert_lesson(
-                        assistant_id=assistant_id,
-                        remote_id=remote_id,
-                        payload=payload,
-                    )
-                    if not remote_id:
-                        created.append(("lesson", assistant_id, new_id))
-                    new_remote["lessons"][agent_name][payload["name"]] = new_id
+                if lesson_filter:
+                    for lesson_obj in getattr(agent_cls, "lessons", []) or []:
+                        payload = self._lesson_payload(lesson_obj)
+                        if (
+                            lesson_filter.get(agent_name)
+                            and payload["name"] not in lesson_filter[agent_name]
+                        ):
+                            continue
+                        remote_id = new_remote["lessons"][agent_name].get(payload["name"])
+                        new_id = client.upsert_lesson(
+                            assistant_id=assistant_id,
+                            remote_id=remote_id,
+                            payload=payload,
+                        )
+                        if not remote_id:
+                            created.append(("lesson", assistant_id, new_id))
+                        new_remote["lessons"][agent_name][payload["name"]] = new_id
 
             return new_remote
         except Exception:
@@ -267,6 +658,8 @@ class Command(BaseCommand):
                         client.delete_assistant(obj_id)
                     elif kind == "tool":
                         client.delete_script(obj_id)
+                    elif kind == "retrieval_tool":
+                        client.delete_retrieval_tool(obj_id)
                 except Exception:
                     continue
             raise
@@ -311,6 +704,67 @@ class Command(BaseCommand):
             "show_assistant_message": False,
             "edit_available": False,
             "code": code,
+        }
+
+    def _retrieval_tool_payload(
+        self,
+        *,
+        tool_name: str,
+        definition: dict[str, Any],
+        cls: Optional[type],
+        project_path: Path,
+    ) -> dict[str, Any]:
+        fields = definition.get("fields", {}) if definition else {}
+
+        def _get(attr: str, default=None):
+            if cls is not None and hasattr(cls, attr):
+                return getattr(cls, attr)
+            return fields.get(attr, default)
+
+        def _resolve_retrieval_id(value: Any) -> int:
+            if value is None:
+                raise CogSolAPIError(f"retrieval is required for retrieval tool '{tool_name}'.")
+            # Normalize retrieval key
+            retrieval_key = value
+            if isinstance(value, type) and issubclass(value, BaseRetrieval):
+                retrieval_key = getattr(value, "name", None) or value.__name__
+            elif hasattr(value, "__name__"):
+                retrieval_key = getattr(value, "name", None) or value.__name__
+            try:
+                state_path = project_path / "data" / "migrations" / ".state.json"
+                _, remote = self._load_content_state(state_path)
+                retrieval_id = remote.get("retrievals", {}).get(retrieval_key)
+            except Exception:
+                retrieval_id = None
+            if retrieval_id is None:
+                raise CogSolAPIError(
+                    "Retrieval tool requires a migrated data retrieval. "
+                    f"Missing retrieval id for '{retrieval_key}'."
+                )
+            return int(retrieval_id)
+
+        params = list(_get("parameters") or [])
+        if not params:
+            params.append(
+                {
+                    "name": "question",
+                    "description": "Search query",
+                    "type": "string",
+                    "required": True,
+                }
+            )
+        description = _get("description") or f"Retrieval tool {tool_name}"
+        retrieval_id = _resolve_retrieval_id(_get("retrieval"))
+
+        return {
+            "name": _get("name") or tool_name,
+            "description": description,
+            "parameters": params,
+            "show_tool_message": bool(_get("show_tool_message", False)),
+            "show_assistant_message": bool(_get("show_assistant_message", False)),
+            "edit_available": bool(_get("edit_available", True)),
+            "retrieval_id": retrieval_id,
+            "answer": bool(_get("answer", True)),
         }
 
     def _assistant_payload(
@@ -386,35 +840,38 @@ class Command(BaseCommand):
         tools = getattr(cls, "tools", []) if cls else []
         pretools = getattr(cls, "pretools", []) if cls else []
 
-        tool_ids: list[int] = []
-        for t in tools:
+        def _resolve_tool_id(t) -> Optional[int]:
             candidates = [
                 getattr(t, "name", None),
                 _tool_key(t),
                 getattr(t, "__name__", None),
                 t.__class__.__name__,
             ]
-            remote_id = None
             for name in candidates:
-                if name and name in remote_ids.get("tools", {}):
-                    remote_id = remote_ids["tools"][name]
-                    break
+                if not name:
+                    continue
+                tool_id = remote_ids.get("tools", {}).get(name)
+                if isinstance(tool_id, int):
+                    return tool_id
+                if isinstance(tool_id, str) and tool_id.isdigit():
+                    return int(tool_id)
+
+                retrieval_id = remote_ids.get("retrieval_tools", {}).get(name)
+                if isinstance(retrieval_id, int):
+                    return retrieval_id
+                if isinstance(retrieval_id, str) and retrieval_id.isdigit():
+                    return int(retrieval_id)
+            return None
+
+        tool_ids: list[int] = []
+        for t in tools:
+            remote_id = _resolve_tool_id(t)
             if remote_id:
                 tool_ids.append(remote_id)
 
         pretool_ids: list[int] = []
         for t in pretools:
-            candidates = [
-                getattr(t, "name", None),
-                _tool_key(t),
-                getattr(t, "__name__", None),
-                t.__class__.__name__,
-            ]
-            remote_id = None
-            for name in candidates:
-                if name and name in remote_ids.get("tools", {}):
-                    remote_id = remote_ids["tools"][name]
-                    break
+            remote_id = _resolve_tool_id(t)
             if remote_id:
                 pretool_ids.append(remote_id)
 

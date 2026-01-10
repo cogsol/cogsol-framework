@@ -14,9 +14,21 @@ def empty_state() -> dict[str, dict[str, dict[str, Any]]]:
     return {
         "agents": {},
         "tools": {},
+        "retrieval_tools": {},
         "lessons": {},
         "faqs": {},
         "fixed_responses": {},
+    }
+
+
+def empty_content_state() -> dict[str, dict[str, dict[str, Any]]]:
+    """Empty state for Content API entities."""
+    return {
+        "topics": {},
+        "formatters": {},
+        "ingestion_configs": {},
+        "retrievals": {},
+        "metadata_configs": {},
     }
 
 
@@ -61,6 +73,7 @@ def _diff_bucket(entity: str, prev_defs: dict[str, Any], current_defs: dict[str,
     create_cls = {
         "agents": ops.CreateAgent,
         "tools": ops.CreateTool,
+        "retrieval_tools": ops.CreateRetrievalTool,
         "lessons": ops.CreateLesson,
         "faqs": ops.CreateFAQ,
         "fixed_responses": ops.CreateFixedResponse,
@@ -117,16 +130,109 @@ def _diff_bucket(entity: str, prev_defs: dict[str, Any], current_defs: dict[str,
     return operations
 
 
-def diff_states(previous: dict[str, Any], current: dict[str, Any]) -> list[Any]:
+def diff_states(
+    previous: dict[str, Any], current: dict[str, Any], app: str = "agents"
+) -> list[Any]:
     operations: list[Any] = []
-    for entity in ["tools", "lessons", "faqs", "fixed_responses", "agents"]:
+
+    if app == "data":
+        # Content API entities
         operations.extend(
-            _diff_bucket(
-                entity,
-                previous.get(entity, {}),
-                current.get(entity, {}),
+            _diff_content_bucket("topics", previous.get("topics", {}), current.get("topics", {}))
+        )
+        operations.extend(
+            _diff_content_bucket(
+                "formatters", previous.get("formatters", {}), current.get("formatters", {})
             )
         )
+        operations.extend(
+            _diff_content_bucket(
+                "ingestion_configs",
+                previous.get("ingestion_configs", {}),
+                current.get("ingestion_configs", {}),
+            )
+        )
+        operations.extend(
+            _diff_content_bucket(
+                "retrievals", previous.get("retrievals", {}), current.get("retrievals", {})
+            )
+        )
+        operations.extend(
+            _diff_content_bucket(
+                "metadata_configs",
+                previous.get("metadata_configs", {}),
+                current.get("metadata_configs", {}),
+            )
+        )
+    else:
+        # Cognitive API entities (agents)
+        for entity in ["retrieval_tools", "tools", "lessons", "faqs", "fixed_responses", "agents"]:
+            operations.extend(
+                _diff_bucket(
+                    entity,
+                    previous.get(entity, {}),
+                    current.get(entity, {}),
+                )
+            )
+    return operations
+
+
+def _diff_content_bucket(
+    entity: str, prev_defs: dict[str, Any], current_defs: dict[str, Any]
+) -> list[Any]:
+    """Diff Content API entity buckets (topics, formatters, etc.)."""
+    operations: list[Any] = []
+
+    create_cls = {
+        "topics": ops.CreateTopic,
+        "formatters": ops.CreateReferenceFormatter,
+        "ingestion_configs": ops.CreateIngestionConfig,
+        "retrievals": ops.CreateRetrieval,
+        "metadata_configs": ops.CreateMetadataConfig,
+    }.get(entity)
+
+    if not create_cls:
+        return operations
+
+    for name, definition in current_defs.items():
+        fields = definition.get("fields", {})
+        meta = definition.get("meta", {})
+
+        if name not in prev_defs:
+            # New entity
+            if entity == "topics":
+                operations.append(create_cls(name=name, fields=fields, meta=meta))
+            elif entity == "metadata_configs":
+                operations.append(
+                    create_cls(
+                        name=name,
+                        fields=fields,
+                        topic=definition.get("topic", ""),
+                    )
+                )
+            else:
+                operations.append(create_cls(name=name, fields=fields))
+            continue
+
+        # Check for field changes
+        prev_fields = prev_defs[name].get("fields", {})
+        for field_name, value in fields.items():
+            if prev_fields.get(field_name) != value:
+                operations.append(
+                    ops.AlterField(
+                        model_name=name,
+                        name=field_name,
+                        value=value,
+                        entity=entity,
+                        scope="fields",
+                    )
+                )
+
+    # Check for deleted entities
+    for name in prev_defs:
+        if name not in current_defs:
+            operations.append(ops.DeleteDefinition(name=name, entity=entity))
+
     return operations
 
 
@@ -139,9 +245,14 @@ def format_operations(operations: Iterable[Any]) -> list[str]:
                 f"name={op.name!r}, value={op.value!r}, "
                 f"entity={op.entity!r}, scope={op.scope!r}),"
             )
+        elif isinstance(op, ops.CreateMetadataConfig):
+            lines.append(
+                f"        migrations.CreateMetadataConfig(name={op.name!r}, "
+                f"fields={op.fields!r}, topic={op.topic!r}),"
+            )
         elif isinstance(op, ops.CreateDefinition):
             cls_name = op.__class__.__name__
-            meta_arg = f", meta={op.meta!r}" if op.meta else ""
+            meta_arg = f", meta={op.meta!r}" if getattr(op, "meta", None) else ""
             lines.append(
                 f"        migrations.{cls_name}(name={op.name!r}, "
                 f"fields={op.fields!r}{meta_arg}),"

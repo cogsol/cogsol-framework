@@ -11,6 +11,7 @@ This guide walks you through creating your first CogSol project, from installati
 - [Creating Your First Agent](#creating-your-first-agent)
 - [Customizing the Agent](#customizing-the-agent)
 - [Adding Tools](#adding-tools)
+- [Working with Documents](#working-with-documents)
 - [Creating Migrations](#creating-migrations)
 - [Deploying to CogSol API](#deploying-to-cogsol-api)
 - [Testing Your Agent](#testing-your-agent)
@@ -58,7 +59,7 @@ cogsol-admin
 
 You should see:
 ```
-A command is required. Available commands: chat, importagent, makemigrations, migrate, startagent, startproject
+A command is required. Available commands: chat, importagent, ingest, makemigrations, migrate, startagent, startproject, starttopic, topics
 ```
 
 ---
@@ -87,6 +88,7 @@ Update `.env` with your CogSol API credentials:
 ```env
 COGSOL_ENV=development
 COGSOL_API_BASE=https://api.cogsol.ai/cognitive/
+COGSOL_CONTENT_API_BASE=https://api.cogsol.ai/content/
 COGSOL_API_TOKEN=your-api-token-here
 ```
 
@@ -111,10 +113,18 @@ my_assistant/
 ├── .env               # Environment variables (don't commit!)
 ├── .env.example       # Environment template
 ├── README.md          # Project documentation
-└── agents/            # Agents application
+├── agents/            # Agents application (Cognitive API)
+│   ├── __init__.py
+│   ├── tools.py       # Shared tool definitions
+│   ├── searches.py    # Retrieval tool definitions
+│   └── migrations/    # Migration files
+│       └── __init__.py
+└── data/              # Data application (Content API)
     ├── __init__.py
-    ├── tools.py       # Shared tool definitions
-    └── migrations/    # Migration files
+    ├── formatters.py  # Reference formatter definitions
+    ├── ingestion.py   # Ingestion configuration definitions
+    ├── retrievals.py  # Retrieval definitions
+    └── migrations/    # Content migrations
         └── __init__.py
 ```
 
@@ -126,7 +136,12 @@ my_assistant/
 | `settings.py` | Project name and base configuration |
 | `.env` | API credentials (keep secret!) |
 | `agents/tools.py` | Define tools used by your agents |
+| `agents/searches.py` | Define retrieval tools for semantic search |
 | `agents/migrations/` | Track changes to your agents |
+| `data/formatters.py` | Define reference formatters for retrievals |
+| `data/ingestion.py` | Define ingestion configs for document upload |
+| `data/retrievals.py` | Define retrievals for Content API |
+| `data/migrations/` | Track changes to topics, metadata, formatters, ingestion configs, and retrievals |
 
 ---
 
@@ -175,6 +190,8 @@ class CustomerSupportAgent(BaseAgent):
         name = "CustomerSupportAgent"
         chat_name = "CustomerSupportAgent Chat"
 ```
+
+Note: `agents/tools.py` ships with commented example tools. Uncomment `ExampleTool` or replace the import and `tools` list with your own tools before running migrations.
 
 ---
 
@@ -250,6 +267,8 @@ class CustomerSupportAgent(BaseAgent):
         primary_color = "#007bff"
 ```
 
+If you keep `ExampleTool()` here, make sure its class is uncommented in `agents/tools.py` or swap in your own tool class.
+
 ### Step 3: Add FAQs
 
 Edit `agents/customersupport/faqs.py`:
@@ -322,7 +341,7 @@ class EscalationLesson(BaseLesson):
 
 ### Step 1: Create a Custom Tool
 
-Edit `agents/tools.py` to add a useful tool:
+Edit `agents/tools.py` to add a useful tool. New projects include a commented example block; uncomment it or replace it with your own tool classes.
 
 ```python
 from cogsol.tools import BaseTool, tool_params
@@ -466,6 +485,147 @@ class CustomerSupportAgent(BaseAgent):
 
 ---
 
+## Working with Documents
+
+CogSol lets you organize and ingest documents that your agents can search. This uses the Content API.
+
+### Step 1: Create a Topic
+
+Topics are containers for organizing documents:
+
+```bash
+python manage.py starttopic product_docs
+```
+
+This creates `data/product_docs/` with:
+- `__init__.py` - Topic definition
+- `metadata.py` - Metadata configuration template
+
+### Step 2: Configure the Topic
+
+Edit `data/product_docs/__init__.py`:
+
+```python
+from cogsol.content import BaseTopic
+
+
+class ProductDocsTopic(BaseTopic):
+    name = "product_docs"
+
+    class Meta:
+        description = "Product documentation and guides."
+```
+
+### Step 3: Add Metadata (Optional)
+
+Edit `data/product_docs/metadata.py`:
+
+```python
+from cogsol.content import BaseMetadataConfig, MetadataType
+
+
+class ProductMetadata(BaseMetadataConfig):
+    name = "product"
+    type = MetadataType.STRING
+    required = True
+    default_value = "Product"
+
+
+class VersionMetadata(BaseMetadataConfig):
+    name = "version"
+    type = MetadataType.STRING
+    possible_values = ["1.0", "2.0", "3.0"]
+    required = False
+```
+
+### Step 4: Add an Ingestion Config (Optional)
+
+Define reusable ingestion settings in `data/ingestion.py`:
+
+
+```python
+from cogsol.content import BaseIngestionConfig, PDFParsingMode, ChunkingMode
+
+
+class HighQualityConfig(BaseIngestionConfig):
+    name = "high_quality"
+    pdf_parsing_mode = PDFParsingMode.OCR
+    chunking_mode = ChunkingMode.AGENTIC_SPLITTER
+    max_size_block = 2000
+    chunk_overlap = 100
+```
+
+### Step 5: Create a Retrieval
+
+Add a retrieval in `data/retrievals.py` to enable semantic search:
+
+```python
+from cogsol.content import BaseRetrieval
+
+
+class ProductDocsRetrieval(BaseRetrieval):
+    name = "product_docs_search"
+    topic = "product_docs"
+    num_refs = 10
+```
+
+### Step 6: Connect Retrieval to Agent
+
+Create a retrieval tool in `agents/searches.py`:
+
+```python
+from cogsol.tools import BaseRetrievalTool
+from data.retrievals import ProductDocsRetrieval
+
+
+class ProductDocsSearch(BaseRetrievalTool):
+    name = "search_product_docs"
+    description = "Search product documentation for answers"
+    retrieval = ProductDocsRetrieval
+    parameters = []
+```
+
+Then add it to your agent in `agents/customersupport/agent.py`:
+
+```python
+from ..searches import ProductDocsSearch
+
+class CustomerSupportAgent(BaseAgent):
+    tools = [
+        OrderLookupTool(),
+        ProductSearchTool(),
+        ProductDocsSearch(),
+    ]
+```
+
+### Step 7: Deploy Topics and Retrievals
+
+Create and apply migrations for your content:
+
+```bash
+python manage.py makemigrations data
+python manage.py migrate data
+```
+
+### Step 8: Ingest Documents
+
+Upload documents to your topic:
+
+```bash
+# Ingest a directory of documents
+python manage.py ingest product_docs ./docs/
+
+# Preview first (dry run)
+python manage.py ingest product_docs ./docs/ --dry-run
+```
+
+### Step 9: List Topics
+
+Verify your topics are synced:
+
+```bash
+python manage.py topics
+```
 ## Creating Migrations
 
 Now that you've defined your agent and tools, create a migration:
@@ -484,7 +644,7 @@ Created migration 0001_initial for app 'agents'.
 Check `agents/migrations/0001_initial.py`:
 
 ```python
-# Generated by CogSol 0.1.0 on 2025-01-08 10:00
+# Generated by CogSol 0.2.0 on 2026-01-08 10:00
 from cogsol.db import migrations
 
 
@@ -508,6 +668,7 @@ Verify your `.env` file has valid credentials:
 
 ```env
 COGSOL_API_BASE=https://api.cogsol.ai/cognitive/
+COGSOL_CONTENT_API_BASE=https://api.cogsol.ai/content/
 COGSOL_API_TOKEN=sk-your-valid-token
 ```
 
@@ -574,7 +735,7 @@ This opens an interactive chat session:
   │ **Order ORD-12345**                       │
   │ - Status: Shipped                         │
   │ - Tracking: 1Z999AA10123456784            │
-  │ - Estimated Arrival: December 15, 2025   │
+  │ - Estimated Arrival: December 15, 2025    │
   ╰───────────────────────────────────────────╯
 ```
 
@@ -625,10 +786,10 @@ python manage.py importagent 123
 
 ### 4. Learn More
 
-- [Architecture Documentation](docs/architecture.md) - Understand how CogSol framework works
-- [CLI Commands Reference](docs/commands.md) - All available commands
-- [API Client Reference](docs/api.md) - Direct API integration
-- [Agents & Tools Reference](docs/agents-tools.md) - Advanced patterns
+- [Architecture Documentation](architecture.md) - Understand how CogSol framework works
+- [CLI Commands Reference](commands.md) - All available commands
+- [API Client Reference](api.md) - Direct API integration
+- [Agents & Tools Reference](agents-tools.md) - Advanced patterns
 
 ### 5. Version Control
 
@@ -676,13 +837,16 @@ Verify your `COGSOL_API_TOKEN` is correct and not expired.
 
 In this guide, you learned to:
 
-1. ✅ Install the CogSol framework
-2. ✅ Create a new project
-3. ✅ Generate an agent scaffold
-4. ✅ Customize agents with prompts, FAQs, and lessons
-5. ✅ Create custom tools
-6. ✅ Generate and apply migrations
-7. ✅ Deploy to the CogSol API
-8. ✅ Test your agent via CLI chat
+1. Install the CogSol framework
+2. Create a new project with both `agents/` and `data/` apps
+3. Generate an agent scaffold
+4. Customize agents with prompts, FAQs, and lessons
+5. Create custom tools
+6. Set up topics and retrievals for document search
+7. Ingest documents into the Content API
+8. Generate and apply migrations for both apps
+9. Deploy to the CogSol API
+10. Test your agent via CLI chat
+
 
 You're now ready to build sophisticated AI agents with CogSol!

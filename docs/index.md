@@ -9,8 +9,8 @@ Welcome to the CogSol Framework documentation. This documentation provides compr
 | [Getting Started](getting-started.md) | Step-by-step tutorial for new users |
 | [Architecture](architecture.md) | Deep dive into how CogSol works |
 | [CLI Commands](commands.md) | Complete command reference |
-| [Agents & Tools](agents-tools.md) | Building agents and tools |
-| [API Client](api.md) | REST API integration |
+| [Agents & Tools](agents-tools.md) | Building agents, tools, and retrieval tools |
+| [API Client](api.md) | REST API integration (Cognitive & Content) |
 
 ---
 
@@ -18,7 +18,8 @@ Welcome to the CogSol Framework documentation. This documentation provides compr
 
 CogSol is a lightweight, agent-first Python framework for building, managing, and deploying AI assistants. It follows a Django-like development pattern with:
 
-- **Code-First Definitions**: Define agents and tools as Python classes
+- **Code-First Definitions**: Define agents, tools, and topics as Python classes
+- **Two Application Structure**: Separate `agents/` (Cognitive API) and `data/` (Content API)
 - **Migration-Based Deployments**: Track changes and sync with remote APIs
 - **No Database Required**: Uses JSON files for state management
 - **Minimal Dependencies**: Built on Python standard library only
@@ -33,6 +34,7 @@ CogSol is a lightweight, agent-first Python framework for building, managing, an
    - Installation
    - Project creation
    - Building your first agent
+   - Working with documents and topics
    - Creating migrations
    - Deployment
 
@@ -40,6 +42,7 @@ CogSol is a lightweight, agent-first Python framework for building, managing, an
 
 2. **[Architecture](architecture.md)** - Framework internals
    - Package structure
+   - Two-app design (agents + data)
    - Component relationships
    - Data flow
    - State management
@@ -48,7 +51,9 @@ CogSol is a lightweight, agent-first Python framework for building, managing, an
 3. **[Agents & Tools](agents-tools.md)** - Building blocks
    - BaseAgent reference
    - BaseTool reference
+   - BaseRetrievalTool reference
    - FAQs, Fixed Responses, Lessons
+   - Topics and Retrievals
    - Prompts
    - Best practices
 
@@ -56,15 +61,17 @@ CogSol is a lightweight, agent-first Python framework for building, managing, an
 
 4. **[CLI Commands](commands.md)** - Command reference
    - startproject
-   - startagent
+   - startagent / starttopic
    - makemigrations
    - migrate
+   - ingest / topics
    - importagent
    - chat
 
 5. **[API Client](api.md)** - Remote integration
    - CogSolClient usage
-   - API endpoints
+   - Cognitive API endpoints
+   - Content API endpoints
    - Payloads
    - Error handling
 
@@ -76,15 +83,16 @@ CogSol is a lightweight, agent-first Python framework for building, managing, an
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Your Project                             │
 ├─────────────────────────────────────────────────────────────────┤
-│  agents/                                                        │
-│  ├── tools.py          ← Shared tools                          │
-│  ├── migrations/       ← Change tracking                        │
-│  └── <agent>/          ← Per-agent packages                     │
-│      ├── agent.py      ← Agent definition                       │
-│      ├── faqs.py       ← FAQs                                   │
-│      ├── fixed.py      ← Fixed responses                        │
-│      ├── lessons.py    ← Lessons                                │
-│      └── prompts/      ← System prompts                         │
+│  agents/                        data/                           │
+│  ├── tools.py                   ├── formatters.py               │
+│  ├── searches.py                ├── ingestion.py                │
+│  ├── migrations/                ├── retrievals.py               │
+│  └── <agent>/                   ├── migrations/                 │
+│      ├── agent.py               └── <topic>/                    │
+│      ├── faqs.py                    ├── __init__.py             │
+│      ├── fixed.py                   └── metadata.py             │
+│      ├── lessons.py                                             │
+│      └── prompts/                                               │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -93,18 +101,21 @@ CogSol is a lightweight, agent-first Python framework for building, managing, an
 ├─────────────────────────────────────────────────────────────────┤
 │  cogsol/                                                        │
 │  ├── agents/           ← Agent abstractions                     │
-│  ├── tools/            ← Tool abstractions                      │
+│  ├── tools/            ← Tool & retrieval tool abstractions     │
+│  ├── content/          ← Topic, retrieval, formatter classes    │
 │  ├── core/             ← Core functionality                     │
 │  └── management/       ← CLI commands                           │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                       CogSol API                                │
+│                       CogSol APIs                               │
 ├─────────────────────────────────────────────────────────────────┤
-│  /assistants/          ← Agent definitions                      │
-│  /tools/scripts/       ← Tool implementations                   │
-│  /chats/               ← Conversations                          │
+│  Cognitive API                  Content API                     │
+│  ├── /assistants/               ├── /nodes/                     │
+│  ├── /tools/scripts/            ├── /retrievals/                │
+│  ├── /tools/retrievals/         ├── /documents/                 │
+│  └── /chats/                    └── /reference_formatters/      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -123,7 +134,7 @@ from cogsol.prompts import Prompts
 class SupportAgent(BaseAgent):
     system_prompt = Prompts.load("support.md")
     generation_config = genconfigs.QA()
-    tools = [SearchTool(), OrderTool()]
+    tools = [SearchTool(), DocsSearch()]
     temperature = 0.3
     
     class Meta:
@@ -133,7 +144,7 @@ class SupportAgent(BaseAgent):
 
 ### Tools
 
-Tools extend agent capabilities:
+Tools extend agent capabilities with custom logic:
 
 ```python
 from cogsol.tools import BaseTool, tool_params
@@ -147,15 +158,43 @@ class SearchTool(BaseTool):
         return format_results(results)
 ```
 
+### Retrieval Tools
+
+Retrieval tools connect agents to Content API retrievals:
+
+```python
+from cogsol.tools import BaseRetrievalTool
+from data.retrievals import ProductDocsRetrieval
+
+class DocsSearch(BaseRetrievalTool):
+    name = "docs_search"
+    description = "Search product documentation"
+    retrieval = ProductDocsRetrieval
+```
+
+### Topics & Documents
+
+Organize document collections with topics:
+
+```python
+from cogsol.content import BaseTopic
+
+class ProductDocsTopic(BaseTopic):
+    name = "product_docs"
+    
+    class Meta:
+        description = "Product documentation and guides"
+```
+
 ### Migrations
 
 Track and deploy changes:
 
 ```bash
-# Detect changes
+# Detect changes in both agents and data
 python manage.py makemigrations
 
-# Deploy to API
+# Deploy to APIs
 python manage.py migrate
 ```
 
@@ -171,7 +210,7 @@ python manage.py chat --agent SupportAgent
 
 ## Version
 
-This documentation is for CogSol Framework **v0.1.0** (Alpha).
+This documentation is for CogSol Framework **v0.2.0**.
 
 ---
 

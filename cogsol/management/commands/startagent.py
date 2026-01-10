@@ -28,30 +28,27 @@ class {class_name}(BaseAgent):
 
 FAQS_TEMPLATE = """\
 from cogsol.tools import BaseFAQ
-
-
-class GreetingFAQ(BaseFAQ):
-    question = "How do I start?"
-    answer = "Just type your question and I'll help you."
+#
+# class GreetingFAQ(BaseFAQ):
+#     question = "How do I start?"
+#     answer = "Just type your question and I'll help you."
 """
 
 FIXED_TEMPLATE = """\
 from cogsol.tools import BaseFixedResponse
-
-
-class FallbackFixed(BaseFixedResponse):
-    key = "fallback"
-    response = "I'm here to help! Could you rephrase that?"
+#
+# class FallbackFixed(BaseFixedResponse):
+#     key = "fallback"
+#     response = "I'm here to help! Could you rephrase that?"
 """
 
 LESSONS_TEMPLATE = """\
 from cogsol.tools import BaseLesson
-
-
-class ContextLesson(BaseLesson):
-    name = "Context"
-    content = "Keep responses concise and focused on the user's request."
-    context_of_application = "general"
+#
+# class ContextLesson(BaseLesson):
+#     name = "Context"
+#     content = "Keep responses concise and focused on the user's request."
+#     context_of_application = "general"
 """
 
 PROMPT_TEMPLATE = """\

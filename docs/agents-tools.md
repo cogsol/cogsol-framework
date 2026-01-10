@@ -14,10 +14,19 @@ This document provides comprehensive reference documentation for building agents
   - [BaseTool](#basetool)
   - [Tool Parameters](#tool-parameters)
   - [Tool Implementation](#tool-implementation)
+- [Retrieval Tools](#retrieval-tools)
+  - [BaseRetrievalTool](#baseretrievaltool)
+  - [Connecting to Retrievals](#connecting-to-retrievals)
 - [Related Content](#related-content)
   - [BaseFAQ](#basefaq)
   - [BaseFixedResponse](#basefixedresponse)
   - [BaseLesson](#baselesson)
+- [Content Definitions](#content-definitions)
+  - [BaseTopic](#basetopic)
+  - [BaseMetadataConfig](#basemetadataconfig)
+  - [BaseIngestionConfig](#baseingestionconfig)
+  - [BaseReferenceFormatter](#basereferenceformatter)
+  - [BaseRetrieval](#baseretrieval)
 - [Prompts](#prompts)
 - [Best Practices](#best-practices)
 - [Examples](#examples)
@@ -407,6 +416,86 @@ class WeatherTool(BaseTool):
 
 ---
 
+## Retrieval Tools
+
+Retrieval tools connect agents to Content API retrievals for semantic search over document collections.
+
+### BaseRetrievalTool
+
+The base class for retrieval tools.
+
+**Location:** `cogsol/tools/__init__.py`
+
+```python
+from cogsol.tools import BaseRetrievalTool
+from data.retrievals import ProductDocsRetrieval
+
+class DocsSearch(BaseRetrievalTool):
+    name = "docs_search"
+    description = "Search product documentation for answers"
+    retrieval = ProductDocsRetrieval
+    parameters = [
+        {"name": "question", "description": "Search query", "type": "string", "required": True}
+    ]
+
+```
+
+Note: If you omit `parameters` or leave it empty, the framework injects a default `question` parameter.
+
+#### Attributes
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | `str` | Class name | Tool identifier |
+| `description` | `str` | `None` | Tool description for LLM |
+| `retrieval` | `type` | `None` | Reference to a BaseRetrieval class |
+| `parameters` | `list` | `[]` | Parameter definitions |
+| `show_tool_message` | `bool` | `False` | Show tool execution to user |
+| `show_assistant_message` | `bool` | `False` | Show assistant message with tool |
+| `edit_available` | `bool` | `True` | Allow editing in UI |
+| `answer` | `bool` | `True` | Include in response |
+
+### Connecting to Retrievals
+
+Retrieval tools reference Content API retrievals defined in `data/retrievals.py`:
+
+```python
+# data/retrievals.py
+from cogsol.content import BaseRetrieval
+
+class ProductDocsRetrieval(BaseRetrieval):
+    name = "product_docs_search"
+    topic = "product_docs"
+    num_refs = 10
+
+# agents/searches.py
+from cogsol.tools import BaseRetrievalTool
+from data.retrievals import ProductDocsRetrieval
+
+class ProductDocsSearch(BaseRetrievalTool):
+    name = "product_docs_search"
+    description = "Search the product documentation"
+    retrieval = ProductDocsRetrieval
+```
+
+#### Using in Agents
+
+```python
+from cogsol.agents import BaseAgent
+from .searches import ProductDocsSearch
+
+class SupportAgent(BaseAgent):
+    tools = [ProductDocsSearch()]
+```
+
+**Important:** Before using retrieval tools, you must:
+1. Create the topic in `data/`
+2. Create the retrieval in `data/retrievals.py`
+3. Run `python manage.py makemigrations data`
+4. Run `python manage.py migrate data`
+
+---
+
 ## Related Content
 
 ### BaseFAQ
@@ -482,6 +571,223 @@ class EscalationLesson(BaseLesson):
 | `context_of_application` | `str` | When to apply (e.g., "general", "negative_sentiment") |
 
 ---
+
+## Content Definitions
+
+Content definitions are classes that configure document collections and semantic search for the Content API. These live in the `data/` folder.
+
+### BaseTopic
+
+Topics define document collections and map to Content API nodes. Each topic lives in `data/<topic>/__init__.py`.
+
+```python
+from cogsol.content import BaseTopic
+
+class ProductDocsTopic(BaseTopic):
+    name = "product_docs"
+
+    class Meta:
+        description = "Product documentation and guides."
+```
+
+#### Attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `name` | `str` | Unique topic identifier |
+| `delete_orphaned_metadata` | `bool` | Whether to remove metadata configs not present in code |
+| `Meta.description` | `str` | Topic description shown in Content API |
+
+### BaseMetadataConfig
+
+Define metadata fields for documents under a topic. Place these in `data/<topic>/metadata.py`.
+
+```python
+from cogsol.content import BaseMetadataConfig, MetadataType
+
+class ProductMetadata(BaseMetadataConfig):
+    name = "product"
+    type = MetadataType.STRING
+    required = True
+    default_value = "Product"
+
+class VersionMetadata(BaseMetadataConfig):
+    name = "version"
+    type = MetadataType.STRING
+    possible_values = ["1.0", "2.0"]
+    required = False
+```
+
+#### Attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `name` | `str` | Metadata field name |
+| `type` | `MetadataType` | STRING, INTEGER, FLOAT, BOOLEAN, DATE, URL |
+| `possible_values` | `list[str]` | Allowed values (optional) |
+| `default_value` | `str | None` | Default value (required when `required=True`) |
+| `format` | `str | None` | Date format (required for DATE) |
+| `filtrable` | `bool` | Allow filtering on this field |
+| `required` | `bool` | Require value on ingestion |
+| `in_embedding` | `bool` | Use in embeddings |
+| `in_retrieval` | `bool` | Use in retrieval filtering |
+
+### BaseIngestionConfig
+
+Define reusable ingestion settings in `data/ingestion.py`.
+
+```python
+from cogsol.content import BaseIngestionConfig, PDFParsingMode, ChunkingMode
+
+class HighQualityConfig(BaseIngestionConfig):
+    name = "high_quality"
+    pdf_parsing_mode = PDFParsingMode.OCR
+    chunking_mode = ChunkingMode.AGENTIC_SPLITTER
+    max_size_block = 2000
+    chunk_overlap = 100
+```
+
+#### Attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `name` | `str` | Config name |
+| `default_topic` | `BaseTopic` | Default topic to ingest into (optional) |
+| `pdf_parsing_mode` | `PDFParsingMode` | Parsing strategy for PDFs |
+| `chunking_mode` | `ChunkingMode` | Chunking strategy |
+| `max_size_block` | `int` | Maximum characters per block |
+| `chunk_overlap` | `int` | Overlap between blocks |
+| `separators` | `list[str]` | Custom separators |
+| `ocr` | `bool` | Enable OCR parsing |
+| `additional_prompt_instructions` | `str` | Extra parsing instructions |
+| `assign_paths_as_metadata` | `bool` | Attach file path metadata |
+
+### BaseReferenceFormatter
+
+Reference formatters control how retrieved blocks appear in responses. Define them in `data/formatters.py`.
+
+```python
+from cogsol.content import BaseReferenceFormatter
+
+class DefaultFormatter(BaseReferenceFormatter):
+    name = "default_formatter"
+    description = "Basic document reference with name and page."
+    expression = "[{name}, p.{page_num}]"
+```
+
+### BaseRetrieval
+
+Retrievals define semantic search behavior. Place them in `data/retrievals.py`.
+
+```python
+from cogsol.content import BaseRetrieval, ReorderingStrategy
+from data.formatters import DefaultFormatter
+from data.product_docs.metadata import ProductMetadata
+
+class ProductDocsRetrieval(BaseRetrieval):
+    name = "product_docs_search"
+    topic = "product_docs"
+    num_refs = 10
+    reordering = False
+    strategy_reordering = ReorderingStrategy.NONE
+    formatters = {"Text Document": DefaultFormatter}
+    filters = [ProductMetadata]
+```
+
+#### Attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `name` | `str` | Retrieval identifier |
+| `topic` | `str` or `BaseTopic` | Topic name or topic class |
+| `num_refs` | `int` | Number of references to return |
+| `max_msg_length` | `int` | Max response length |
+| `reordering` | `bool` | Enable reordering |
+| `strategy_reordering` | `ReorderingStrategy` | Reordering method |
+| `reordering_metadata` | `str | None` | Metadata field used by reordering (required with strategy) |
+| `retrieval_window` | `int` | Candidate window size |
+| `fixed_blocks_reordering` | `int` | Fixed blocks to include |
+| `previous_blocks` | `float` | Context blocks before |
+| `next_blocks` | `float` | Context blocks after |
+| `contingency_for_embedding` | `bool` | Fallback embedding behavior |
+| `threshold_similarity` | `float` | Similarity threshold |
+| `formatters` | `dict[str, BaseReferenceFormatter]` | Formatters by doc type |
+| `filters` | `list[BaseMetadataConfig]` | Metadata configs allowed for filtering |
+
+### Complete Content Example
+
+```python
+# data/knowledge_base/__init__.py
+from cogsol.content import BaseTopic
+
+class KnowledgeBaseTopic(BaseTopic):
+    name = "knowledge_base"
+
+    class Meta:
+        description = "Company knowledge base"
+```
+
+```python
+# data/knowledge_base/metadata.py
+from cogsol.content import BaseMetadataConfig, MetadataType
+
+class DepartmentMetadata(BaseMetadataConfig):
+    name = "department"
+    type = MetadataType.STRING
+    possible_values = ["Sales", "Support", "Engineering"]
+    filtrable = True
+    required = False
+```
+
+```python
+# data/formatters.py
+from cogsol.content import BaseReferenceFormatter
+
+class DetailedFormatter(BaseReferenceFormatter):
+    name = "detailed"
+    description = "Include page and department"
+    expression = "[{name}, p.{page_num}] ({metadata.department})"
+```
+
+```python
+# data/retrievals.py
+from cogsol.content import BaseRetrieval
+from data.formatters import DetailedFormatter
+from data.knowledge_base.metadata import DepartmentMetadata
+
+class KnowledgeBaseRetrieval(BaseRetrieval):
+    name = "kb_search"
+    topic = "knowledge_base"
+    num_refs = 8
+    formatters = {"Text Document": DetailedFormatter}
+    filters = [DepartmentMetadata]
+```
+
+```python
+# agents/searches.py
+from cogsol.tools import BaseRetrievalTool
+from data.retrievals import KnowledgeBaseRetrieval
+
+class KnowledgeBaseSearch(BaseRetrievalTool):
+    name = "search_knowledge_base"
+    description = "Search the company knowledge base"
+    retrieval = KnowledgeBaseRetrieval
+```
+
+### Content Workflow
+
+1. **Create Topic:** `python manage.py starttopic knowledge_base`
+2. **Configure Topic:** Edit `data/knowledge_base/__init__.py`
+3. **Add Metadata:** Edit `data/knowledge_base/metadata.py`
+4. **Add Retrieval:** Edit `data/retrievals.py`
+5. **Migrate:**
+   ```
+   python manage.py makemigrations data
+   python manage.py migrate data
+   ```
+6. **Ingest Documents:** `python manage.py ingest knowledge_base /path/to/docs`
+7. **Connect to Agent:** Create retrieval tool in `agents/searches.py`
+
 
 ## Prompts
 
@@ -775,3 +1081,6 @@ class ObjectionHandlingLesson(BaseLesson):
     Never dismiss concerns or pressure the customer."""
     context_of_application = "pricing_objection"
 ```
+
+---
+

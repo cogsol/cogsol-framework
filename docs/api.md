@@ -6,7 +6,8 @@ This document provides detailed reference documentation for the CogSol API clien
 
 - [Overview](#overview)
 - [CogSolClient](#cogsolclient)
-- [API Endpoints](#api-endpoints)
+- [Cognitive API Endpoints](#cognitive-api-endpoints)
+- [Content API Endpoints](#content-api-endpoints)
 - [Error Handling](#error-handling)
 - [Usage Examples](#usage-examples)
 - [API Payloads](#api-payloads)
@@ -15,13 +16,15 @@ This document provides detailed reference documentation for the CogSol API clien
 
 ## Overview
 
-The API client module provides a lightweight HTTP client for communicating with the CogSol REST API. It uses only Python's standard library (`urllib`) with no external dependencies.
+The API client module provides a lightweight HTTP client for communicating with both the CogSol Cognitive API and Content API. It uses only Python's standard library (`urllib`) with no external dependencies.
 
 ### Features
 
 - **No Dependencies**: Uses only `urllib.request`
 - **JSON-Based**: Automatic JSON encoding/decoding
+- **Multipart Upload**: Support for file uploads to Content API
 - **Token Authentication**: Supports `x-api-key` header
+- **Dual API Support**: Separate base URLs for Cognitive and Content APIs
 - **CRUD Operations**: Full create, read, update, delete support
 - **Type-Safe**: Proper error handling and validation
 
@@ -41,14 +44,16 @@ from typing import Any, Optional
 class CogSolClient:
     base_url: str
     token: Optional[str] = None
+    content_base_url: Optional[str] = None
 ```
 
 ### Constructor Parameters
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `base_url` | `str` | Yes | Base URL for the CogSol API (e.g., `https://api.cogsol.ai/cognitive/`) |
+| `base_url` | `str` | Yes | Base URL for the Cognitive API (e.g., `https://api.cogsol.ai/cognitive/`) |
 | `token` | `str` | No | API authentication token |
+| `content_base_url` | `str` | No | Base URL for Content API (defaults to `base_url` if not set) |
 
 ### Basic Usage
 
@@ -58,10 +63,11 @@ from cogsol.core.api import CogSolClient
 # Without authentication
 client = CogSolClient(base_url="https://api.cogsol.ai/cognitive/")
 
-# With authentication
+# With authentication and separate Content API
 client = CogSolClient(
     base_url="https://api.cogsol.ai/cognitive/",
-    token="sk-your-api-key"
+    token="sk-your-api-key",
+    content_base_url="https://api.cogsol.ai/content/"
 )
 ```
 
@@ -78,7 +84,8 @@ def request(
     self,
     method: str,
     path: str,
-    payload: Optional[dict[str, Any]] = None
+    payload: Optional[dict[str, Any]] = None,
+    use_content_api: bool = False
 ) -> Any
 ```
 
@@ -89,6 +96,7 @@ def request(
 | `method` | `str` | HTTP method (`GET`, `POST`, `PUT`, `DELETE`) |
 | `path` | `str` | API path (e.g., `/assistants/`) or full URL |
 | `payload` | `dict` | Request body (JSON-encoded) |
+| `use_content_api` | `bool` | If `True`, use `content_base_url` instead of `base_url` |
 
 #### Returns
 
@@ -97,14 +105,11 @@ Parsed JSON response or `None` for empty responses.
 #### Example
 
 ```python
-# GET request
+# GET request (Cognitive API)
 assistants = client.request("GET", "/assistants/")
 
-# POST request
-new_assistant = client.request("POST", "/assistants/", {
-    "description": "My Assistant",
-    "system_prompt": "You are helpful."
-})
+# POST request (Content API)
+node = client.request("POST", "/nodes/", {"name": "docs"}, use_content_api=True)
 
 # PUT request
 client.request("PUT", "/assistants/42/", {"temperature": 0.5})
@@ -113,9 +118,48 @@ client.request("PUT", "/assistants/42/", {"temperature": 0.5})
 client.request("DELETE", "/assistants/42/")
 ```
 
+### request_multipart()
+
+Send multipart/form-data requests for file uploads.
+
+```python
+def request_multipart(
+    self,
+    method: str,
+    path: str,
+    fields: dict[str, Any],
+    files: dict[str, Path],
+    use_content_api: bool = False
+) -> Any
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `method` | `str` | HTTP method (typically `POST`) |
+| `path` | `str` | API path |
+| `fields` | `dict` | Form fields |
+| `files` | `dict` | File paths to upload (key = field name, value = Path) |
+| `use_content_api` | `bool` | If `True`, use `content_base_url` |
+
+#### Example
+
+```python
+from pathlib import Path
+
+doc_id = client.request_multipart(
+    "POST",
+    "/documents/",
+    fields={"name": "Manual", "node_id": "1", "doc_type": "Text Document"},
+    files={"file": Path("./docs/manual.pdf")},
+    use_content_api=True
+)
+```
+
 ---
 
-## Assistant Operations
+## Cognitive API Endpoints
 
 ### upsert_assistant()
 
@@ -404,6 +448,54 @@ def delete_lesson(self, assistant_id: int, lesson_id: int) -> None
 
 ---
 
+## Retrieval Tool Operations
+
+### upsert_retrieval_tool()
+
+Create or update a retrieval tool that queries Content API retrievals.
+
+```python
+def upsert_retrieval_tool(
+    self,
+    *,
+    remote_id: Optional[int],
+    payload: dict[str, Any]
+) -> int
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `remote_id` | `int` | Existing tool ID (for update) or `None` (for create) |
+| `payload` | `dict` | Retrieval tool configuration |
+
+#### Example
+
+```python
+tool_id = client.upsert_retrieval_tool(
+    remote_id=None,
+    payload={
+        "name": "docs_search",
+        "description": "Search product documentation",
+        "retrieval_id": 10,
+        "parameters": [
+            {"name": "question", "type": "string", "required": True}
+        ]
+    }
+)
+```
+
+### delete_retrieval_tool()
+
+Delete a retrieval tool.
+
+```python
+def delete_retrieval_tool(self, tool_id: int) -> None
+```
+
+---
+
 ## Chat Operations
 
 ### create_chat()
@@ -521,6 +613,319 @@ try:
 except CogSolAPIError as e:
     print(f"Connection Error: {e}")
     # Output: Connection Error: Connection error: [Errno ...]
+```
+
+---
+
+## Content API Endpoints
+
+The Content API manages document collections, topics, and semantic search configurations.
+
+### Node (Topic) Operations
+
+#### list_nodes()
+
+List all nodes (topics) with pagination.
+
+```python
+def list_nodes(self, page: int = 1, page_size: int = 100) -> Any
+```
+
+#### get_node()
+
+Retrieve a node by ID.
+
+```python
+def get_node(self, node_id: int) -> Any
+```
+
+#### upsert_node()
+
+Create or update a node (topic).
+
+```python
+def upsert_node(
+    self,
+    *,
+    remote_id: Optional[int],
+    payload: dict[str, Any]
+) -> int
+```
+
+##### Example
+
+```python
+# Create a root topic
+node_id = client.upsert_node(
+    remote_id=None,
+    payload={
+        "name": "documentation",
+        "description": "Product documentation",
+        "parent": None
+    }
+)
+
+# Create a nested topic
+child_id = client.upsert_node(
+    remote_id=None,
+    payload={
+        "name": "tutorials",
+        "description": "Tutorial guides",
+        "parent": node_id
+    }
+)
+```
+
+#### delete_node()
+
+Delete a node by ID.
+
+```python
+def delete_node(self, node_id: int) -> None
+```
+
+---
+
+### Retrieval Operations
+
+#### list_retrievals()
+
+List all retrieval configurations.
+
+```python
+def list_retrievals(self) -> Any
+```
+
+#### get_retrieval()
+
+Retrieve a retrieval configuration by ID.
+
+```python
+def get_retrieval(self, retrieval_id: int) -> Any
+```
+
+#### upsert_retrieval()
+
+Create or update a retrieval configuration.
+
+```python
+def upsert_retrieval(
+    self,
+    *,
+    remote_id: Optional[int],
+    payload: dict[str, Any]
+) -> int
+```
+
+##### Example
+
+```python
+retrieval_id = client.upsert_retrieval(
+    remote_id=None,
+    payload={
+        "description": "Product docs search",
+        "node": 1,
+        "num_refs": 10,
+        "reordering": False,
+        "formatters": [
+            {"doc_type": "Text Document", "formatter_id": 5}
+        ]
+    }
+)
+```
+
+#### retrieve_similar_blocks()
+
+Execute a semantic search.
+
+```python
+def retrieve_similar_blocks(
+    self,
+    retrieval_id: int,
+    question: str,
+    doc_type: Optional[str] = None
+) -> Any
+```
+
+##### Example
+
+```python
+results = client.retrieve_similar_blocks(
+    retrieval_id=10,
+    question="How do I configure authentication?"
+)
+for block in results.get("blocks", []):
+    print(f"Score: {block['score']} - {block['content'][:100]}")
+```
+
+---
+
+### Document Operations
+
+#### upload_document()
+
+Upload a single document to a node.
+
+```python
+def upload_document(
+    self,
+    *,
+    file_path: str | Path,
+    name: str,
+    node_id: int,
+    doc_type: str = "general",
+    metadata: Optional[list[dict]] = None,
+    ingestion_config_id: Optional[int] = None,
+    pdf_parsing_mode: str = "both",
+    chunking_mode: str = "langchain",
+    max_size_block: int = 1500,
+    chunk_overlap: int = 0,
+    ocr: bool = False,
+    additional_prompt_instructions: str = "",
+    assign_paths_as_metadata: bool = False
+) -> int
+```
+
+##### Example
+
+```python
+from pathlib import Path
+
+doc_id = client.upload_document(
+    file_path=Path("./docs/user-guide.pdf"),
+    name="User Guide",
+    node_id=1,
+    doc_type="Text Document",
+    pdf_parsing_mode="ocr",
+    chunking_mode="agentic",
+    max_size_block=2000
+)
+```
+
+#### upload_documents_bulk()
+
+Upload multiple documents to a node.
+
+```python
+def upload_documents_bulk(
+    self,
+    *,
+    file_paths: list[str | Path],
+    node_id: int,
+    doc_type: str = "general",
+    **options
+) -> list[int]
+```
+
+##### Example
+
+```python
+from pathlib import Path
+
+doc_ids = client.upload_documents_bulk(
+    file_paths=[
+        Path("./docs/guide1.pdf"),
+        Path("./docs/guide2.pdf"),
+        Path("./docs/guide3.pdf")
+    ],
+    node_id=1,
+    doc_type="Text Document"
+)
+print(f"Uploaded {len(doc_ids)} documents")
+```
+
+#### get_document()
+
+Retrieve a document by ID.
+
+```python
+def get_document(self, doc_id: int) -> Any
+```
+
+#### delete_document()
+
+Delete a document by ID.
+
+```python
+def delete_document(self, doc_id: int) -> None
+```
+
+---
+
+### Reference Formatter Operations
+
+#### list_reference_formatters()
+
+List all reference formatters.
+
+```python
+def list_reference_formatters(self) -> Any
+```
+
+#### upsert_reference_formatter()
+
+Create or update a reference formatter.
+
+```python
+def upsert_reference_formatter(
+    self,
+    *,
+    remote_id: Optional[int],
+    payload: dict[str, Any]
+) -> int
+```
+
+##### Example
+
+```python
+formatter_id = client.upsert_reference_formatter(
+    remote_id=None,
+    payload={
+        "name": "detailed_formatter",
+        "description": "Include page and category",
+        "expression": "[{name}, p.{page_num}] ({metadata.category})"
+    }
+)
+```
+
+---
+
+### Metadata Config Operations
+
+#### create_metadata_config()
+
+Create a metadata configuration for a node.
+
+```python
+def create_metadata_config(
+    self,
+    *,
+    node_id: int,
+    payload: dict[str, Any]
+) -> int
+```
+
+##### Example
+
+```python
+config_id = client.create_metadata_config(
+    node_id=1,
+    payload={
+        "name": "category",
+        "type": "STRING",
+        "possible_values": ["Guide", "Tutorial", "Reference"],
+        "filtrable": True,
+        "required": False
+    }
+)
+```
+
+#### update_metadata_config()
+
+Update an existing metadata configuration.
+
+```python
+def update_metadata_config(self, config_id: int, payload: dict[str, Any]) -> Any
 ```
 
 ---

@@ -40,14 +40,14 @@ By participating in this project, you agree to maintain a respectful and inclusi
 2. Clone your fork locally:
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/cogsol.git
-cd cogsol
+git clone https://github.com/YOUR-USERNAME/cogsol-framework.git
+cd cogsol-framework
 ```
 
 3. Add the upstream remote:
 
 ```bash
-git remote add upstream https://github.com/cognitive-solutions/cogsol.git
+git remote add upstream https://github.com/Pyxis-Cognitive-Solutions/cogsol-framework.git
 ```
 
 ---
