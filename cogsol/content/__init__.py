@@ -8,8 +8,14 @@ CogSol Content API.
 
 from __future__ import annotations
 
+import os
+import sys
 from enum import Enum
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional
+
+from cogsol.core.api import CogSolAPIError, CogSolClient
+from cogsol.core.env import load_dotenv
 
 
 class MetadataType(Enum):
@@ -241,6 +247,130 @@ class BaseRetrieval:
 
     # Filterable metadata configs
     filters: list[type[BaseMetadataConfig]] = []
+
+    def __init__(
+        self,
+        *,
+        retrieval_id: Optional[int] = None,
+        api_base: Optional[str] = None,
+        api_token: Optional[str] = None,
+        content_api_base: Optional[str] = None,
+        project_path: Optional[Path] = None,
+    ) -> None:
+        self._retrieval_id = retrieval_id
+        self._api_base = api_base
+        self._api_token = api_token
+        self._content_api_base = content_api_base
+        self._project_path = project_path
+
+    def run(
+        self,
+        question: str,
+        *,
+        doc_type: Optional[str | DocType] = None,
+        retrieval_id: Optional[int] = None,
+        api_base: Optional[str] = None,
+        api_token: Optional[str] = None,
+        content_api_base: Optional[str] = None,
+        project_path: Optional[Path] = None,
+        **params: Any,
+    ) -> Any:
+        """
+        Execute a semantic search using this retrieval configuration.
+        """
+        if not question:
+            raise ValueError("question is required")
+
+        project_path = self._resolve_project_path(project_path)
+        if project_path is None:
+            project_path = Path.cwd()
+        load_dotenv(project_path / ".env")
+
+        content_base = (
+            content_api_base or self._content_api_base or os.environ.get("COGSOL_CONTENT_API_BASE")
+        )
+        base_url = api_base or self._api_base or os.environ.get("COGSOL_API_BASE") or content_base
+        if not content_base:
+            raise CogSolAPIError("COGSOL_CONTENT_API_BASE is required to run retrievals.")
+        token = api_token or self._api_token or os.environ.get("COGSOL_API_TOKEN")
+
+        retrieval_id = retrieval_id or self._retrieval_id
+        if retrieval_id is None:
+            retrieval_id = self._resolve_retrieval_id(project_path)
+        if retrieval_id is None:
+            raise CogSolAPIError(
+                "Could not resolve retrieval id. Run migrate or pass retrieval_id explicitly."
+            )
+        self._retrieval_id = retrieval_id
+
+        payload: dict[str, Any] = {"question": question}
+        if doc_type is not None:
+            payload["doc_type"] = self._normalize_payload_value(doc_type)
+        for key, value in params.items():
+            if value is None or key in {"question", "doc_type"}:
+                continue
+            payload[key] = self._normalize_payload_value(value)
+
+        if base_url:
+            client = CogSolClient(base_url, token=token, content_base_url=content_base)
+        else:
+            raise CogSolAPIError("COGSOL_CONTENT_API_BASE is required to run retrievals.")
+        return client.request(
+            "POST",
+            f"/retrievals/{retrieval_id}/retrieve/",
+            payload,
+            use_content_api=True,
+        )
+
+    def _resolve_project_path(self, project_path: Optional[Path]) -> Optional[Path]:
+        if project_path is not None:
+            return project_path
+        if self._project_path is not None:
+            return self._project_path
+        module = sys.modules.get(self.__class__.__module__)
+        module_path = getattr(module, "__file__", None)
+        if module_path:
+            path = Path(module_path).resolve()
+            for parent in path.parents:
+                if parent.name == "data":
+                    return parent.parent
+        return None
+
+    def _resolve_retrieval_id(self, project_path: Optional[Path]) -> Optional[int]:
+        if project_path is None:
+            project_path = Path.cwd()
+        state_path = project_path / "data" / "migrations" / ".state.json"
+        if not state_path.exists():
+            return None
+        try:
+            import json
+
+            data = json.loads(state_path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        remote = data.get("remote") if isinstance(data, dict) else None
+        if not isinstance(remote, dict):
+            return None
+        retrieval_key = getattr(self, "name", None) or self.__class__.__name__
+        value = remote.get("retrievals", {}).get(retrieval_key)
+        if value is None and retrieval_key != self.__class__.__name__:
+            value = remote.get("retrievals", {}).get(self.__class__.__name__)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+        return None
+
+    def _normalize_payload_value(self, value: Any) -> Any:
+        if isinstance(value, Enum):
+            return value.value
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, (list, tuple)):
+            return [self._normalize_payload_value(item) for item in value]
+        if isinstance(value, dict):
+            return {key: self._normalize_payload_value(val) for key, val in value.items()}
+        return value
 
     def __repr__(self) -> str:
         return f"<Retrieval {getattr(self, 'name', self.__class__.__name__)}>"

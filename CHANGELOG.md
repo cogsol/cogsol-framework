@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BaseReferenceFormatter** class for block reference formatting
 - **BaseIngestionConfig** class for document processing settings
 - **BaseRetrieval** class for semantic search configuration
+- **BaseRetrieval.run** helper for executing retrieval queries
 - **BaseRetrievalTool** class for connecting agents to Content API retrievals
 
 #### New CLI Commands
