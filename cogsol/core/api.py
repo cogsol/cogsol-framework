@@ -218,12 +218,45 @@ class CogSolClient:
         raise CogSolAPIError(f"Lesson did not include an id: {data}")
 
     # Chat utilities -------------------------------------------------------
-    def create_chat(self, assistant_id: int, message: Optional[str] = None) -> Any:
-        payload = {"message": message} if message else {}
-        return self.request("POST", f"/assistants/{assistant_id}/chats/", payload or None)
+    def create_chat(
+        self,
+        assistant_id: int,
+        message: Optional[str] = None,
+        *,
+        payload: Optional[dict[str, Any]] = None,
+        async_mode: bool = False,
+        streaming: bool = False,
+    ) -> Any:
+        if payload is None and message is not None:
+            payload = {"message": message}
+        if streaming:
+            path = f"/assistants/{assistant_id}/chats_stream/"
+        elif async_mode:
+            path = f"/assistants/{assistant_id}/chats/async/"
+        else:
+            path = f"/assistants/{assistant_id}/chats/"
+        return self.request("POST", path, payload or None)
 
-    def send_message(self, chat_id: int, message: str) -> Any:
-        return self.request("POST", f"/chats/{chat_id}/", {"message": message})
+    def send_message(
+        self,
+        chat_id: int,
+        message: Optional[str] = None,
+        *,
+        payload: Optional[dict[str, Any]] = None,
+        async_mode: bool = False,
+        streaming: bool = False,
+    ) -> Any:
+        if payload is None:
+            if message is None:
+                raise ValueError("message is required when payload is not provided")
+            payload = {"message": message}
+        if streaming:
+            path = f"/chats_stream/{chat_id}/"
+        elif async_mode:
+            path = f"/chats/{chat_id}/async/"
+        else:
+            path = f"/chats/{chat_id}/"
+        return self.request("POST", path, payload)
 
     def get_chat(self, chat_id: int) -> Any:
         return self.request("GET", f"/chats/{chat_id}/")
