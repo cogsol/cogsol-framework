@@ -1,8 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
+import ast
 import copy
 import inspect
 import json
+import re
 import textwrap
 from pathlib import Path
 from typing import Any, Optional, cast
@@ -962,6 +964,23 @@ class Command(BaseCommand):
             "additional_metadata": {},
         }
 
+    def _tool_helper_source(self, node: ast.AST) -> str:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return ""
+        fn_node = ast.fix_missing_locations(ast.copy_location(node, node))
+        fn_node.decorator_list = []
+        if fn_node.args.posonlyargs and fn_node.args.posonlyargs[0].arg == "self":
+            fn_node.args.posonlyargs = fn_node.args.posonlyargs[1:]
+        if fn_node.args.args and fn_node.args.args[0].arg == "self":
+            fn_node.args.args = fn_node.args.args[1:]
+        return ast.unparse(fn_node).strip()
+
+    def _replace_self_calls(self, code: str, helper_names: list[str]) -> str:
+        rewritten = code
+        for name in helper_names:
+            rewritten = re.sub(rf"\bself\.{name}\b", name, rewritten)
+        return rewritten
+
     def _tool_script_from_class(self, cls: Optional[type[BaseTool]]) -> str:
         if cls is None:
             return ""
@@ -974,6 +993,33 @@ class Command(BaseCommand):
             source = inspect.getsource(run_fn)
         except (OSError, TypeError):  # pragma: no cover - best effort
             return getattr(cls, "__doc__", "") or ""
+
+        helper_sources: list[str] = []
+        helper_names: list[str] = []
+        try:
+            class_source = inspect.getsource(cls)
+            class_source = _normalize_code(class_source)
+            tree = ast.parse(class_source)
+            class_def = next(
+                (
+                    node
+                    for node in tree.body
+                    if isinstance(node, ast.ClassDef) and node.name == cls.__name__
+                ),
+                None,
+            )
+            if class_def is not None:
+                for node in class_def.body:
+                    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        continue
+                    name = node.name
+                    if name == "run" or (name.startswith("__") and name.endswith("__")):
+                        continue
+                    helper_names.append(name)
+                    helper_sources.append(self._tool_helper_source(node))
+        except Exception:  # pragma: no cover - best effort
+            helper_sources = []
+            helper_names = []
 
         source = _normalize_code(source)
         lines = source.splitlines()
@@ -992,6 +1038,7 @@ class Command(BaseCommand):
 
         body = "\n".join(lines[def_idx + 1 :])
         dedented = textwrap.dedent(body)
+        dedented = self._replace_self_calls(dedented, helper_names)
 
         # Detect parameters to bind from signature (excluding runtime args)
         params_to_bind = []
@@ -1020,7 +1067,16 @@ class Command(BaseCommand):
                 continue
             result_lines.append(line)
 
-        script = "\n".join(result_lines).strip()
-        if "response" not in script:
-            script += ("\n\n" if script else "") + "response = None"
-        return script
+        run_script = "\n".join(result_lines).strip()
+        if "response" not in run_script:
+            run_script += ("\n\n" if run_script else "") + "response = None"
+
+        script_parts: list[str] = []
+        if helper_sources:
+            helper_block = "\n\n".join(helper_sources)
+            helper_block = self._replace_self_calls(helper_block, helper_names)
+            script_parts.append(helper_block)
+        if run_script:
+            script_parts.append(run_script)
+
+        return "\n\n".join(script_parts).strip()

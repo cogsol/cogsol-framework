@@ -68,6 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Loader now detects definitions in submodules and surfaces import failures during collection
 - Align chunking mode value with API ("ingestor")
 - Chat command now shows assistant initial_message without duplicating it
+- Tool code transformation now preserves helper methods for self-contained scripts
 
 ---
 
