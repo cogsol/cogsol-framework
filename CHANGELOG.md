@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Prompt text loaded and stored in migration state
 - Loader now detects definitions in submodules and surfaces import failures during collection
 - Align chunking mode value with API ("ingestor")
+- Chat command now shows assistant initial_message without duplicating it
 
 ---
 
@@ -79,6 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tool integration
   - Generation config support
   - Meta class for display settings
+- **BaseAgent.run/reset** helpers for direct chat API usage
 - **BaseTool** class for extending agent capabilities
   - `@tool_params` decorator for parameter metadata
   - Support for `chat`, `data`, `secrets`, `log` runtime arguments

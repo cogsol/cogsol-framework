@@ -90,12 +90,12 @@ def print_banner(agent_name: str, agent_id: int) -> None:
 
     # Gradient-style banner
     banner_art = r"""
-    ██████╗ ██████╗  ██████╗ ███████╗ ██████╗ ██╗
-   ██╔════╝██╔═══██╗██╔════╝ ██╔════╝██╔═══██╗██║
-   ██║     ██║   ██║██║  ███╗███████╗██║   ██║██║
-   ██║     ██║   ██║██║   ██║╚════██║██║   ██║██║
-   ╚██████╗╚██████╔╝╚██████╔╝███████║╚██████╔╝███████╗
-    ╚═════╝ ╚═════╝  ╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝
+ ██████╗ ██████╗  ██████╗ ███████╗ ██████╗ ██╗     # noqa: W291
+██╔════╝██╔═══██╗██╔════╝ ██╔════╝██╔═══██╗██║     # noqa: W291
+██║     ██║   ██║██║  ███╗███████╗██║   ██║██║     # noqa: W291
+██║     ██║   ██║██║   ██║╚════██║██║   ██║██║     # noqa: W291
+╚██████╗╚██████╔╝╚██████╔╝███████║╚██████╔╝███████╗
+ ╚═════╝ ╚═════╝  ╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝
     """
 
     print()
@@ -328,12 +328,15 @@ class Command(BaseCommand):
             return 1
 
         client = CogSolClient(api_base, token=api_token)
+        initial_message = self._assistant_initial_message(client, assistant_id)
 
         # Start a new chat and show banner
         if Style.ENABLED:
             print("\033[2J\033[H", end="")  # Start a new chat
 
         print_banner(agent, assistant_id)
+        if initial_message:
+            print_ai_message(initial_message)
 
         chat_id: Optional[int] = None
         history_printed = 0
@@ -363,6 +366,8 @@ class Command(BaseCommand):
                 print_system_message(
                     "Started a new chat. Your next message will open a fresh session."
                 )
+                if initial_message:
+                    print_ai_message(initial_message)
                 continue
 
             # Display user's message
@@ -389,7 +394,11 @@ class Command(BaseCommand):
                 clear_thinking()
 
                 # Print only new AI messages (skip user messages we already printed)
-                self._print_new_ai_messages(messages, since=history_printed)
+                self._print_new_ai_messages(
+                    messages,
+                    since=history_printed,
+                    initial_message=initial_message,
+                )
                 history_printed = len(messages)
 
             except CogSolAPIError as exc:
@@ -425,6 +434,17 @@ class Command(BaseCommand):
         value = remote_ids.get("agents", {}).get(agent)
         return value if isinstance(value, int) else None
 
+    def _assistant_initial_message(self, client: CogSolClient, assistant_id: int) -> str:
+        try:
+            assistant = client.get_assistant(assistant_id)
+        except CogSolAPIError:
+            return ""
+        if isinstance(assistant, dict):
+            value = assistant.get("initial_message")
+            if isinstance(value, str):
+                return value.strip()
+        return ""
+
     def _chat_id(self, chat_obj: Any) -> Optional[int]:
         if isinstance(chat_obj, dict):
             value = chat_obj.get("id")
@@ -440,13 +460,23 @@ class Command(BaseCommand):
             return msgs
         return []
 
-    def _print_new_ai_messages(self, messages: list[dict[str, Any]], since: int) -> None:
+    def _print_new_ai_messages(
+        self,
+        messages: list[dict[str, Any]],
+        since: int,
+        initial_message: str = "",
+    ) -> None:
         """Print only new AI messages (user messages are printed immediately on input)."""
         if not messages:
             print_error("No response received")
             return
 
         new_msgs = messages[since:]
+        if initial_message and since == 0:
+            for idx, msg in enumerate(new_msgs):
+                if msg.get("role", "assistant") != "user" and msg.get("content") == initial_message:
+                    new_msgs = new_msgs[idx + 1 :]
+                    break
         for msg in new_msgs:
             role = msg.get("role", "assistant")
             content = msg.get("content") or ""
