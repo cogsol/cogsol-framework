@@ -90,17 +90,18 @@ def print_banner(agent_name: str, agent_id: int) -> None:
 
     # Gradient-style banner
     banner_art = r"""
- ██████╗ ██████╗  ██████╗ ███████╗ ██████╗ ██╗     # noqa: W291
-██╔════╝██╔═══██╗██╔════╝ ██╔════╝██╔═══██╗██║     # noqa: W291
-██║     ██║   ██║██║  ███╗███████╗██║   ██║██║     # noqa: W291
-██║     ██║   ██║██║   ██║╚════██║██║   ██║██║     # noqa: W291
+ ██████╗ ██████╗  ██████╗ ███████╗ ██████╗ ██╗
+██╔════╝██╔═══██╗██╔════╝ ██╔════╝██╔═══██╗██║
+██║     ██║   ██║██║  ███╗███████╗██║   ██║██║
+██║     ██║   ██║██║   ██║╚════██║██║   ██║██║
 ╚██████╗╚██████╔╝╚██████╔╝███████║╚██████╔╝███████╗
  ╚═════╝ ╚═════╝  ╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝
     """
 
     print()
     # Print banner with gradient effect
-    lines = banner_art.strip().split("\n")
+    lines = banner_art.split("\n")
+    max_line_length = max(len(line) for line in lines)
     colors = [
         Style.BRIGHT_CYAN,
         Style.CYAN,
@@ -109,9 +110,9 @@ def print_banner(agent_name: str, agent_id: int) -> None:
         Style.BRIGHT_MAGENTA,
         Style.MAGENTA,
     ]
-    for i, line in enumerate(lines):
+    for i, line in enumerate(lines[1:-1]):
         color = colors[i % len(colors)]
-        print(Style.apply(line.center(width), color, Style.BOLD))
+        print(Style.apply(line.ljust(max_line_length).center(width), color, Style.BOLD))
 
     print()
 
