@@ -253,13 +253,13 @@ class BaseRetrieval:
         *,
         retrieval_id: Optional[int] = None,
         api_base: Optional[str] = None,
-        api_token: Optional[str] = None,
+        api_key: Optional[str] = None,
         content_api_base: Optional[str] = None,
         project_path: Optional[Path] = None,
     ) -> None:
         self._retrieval_id = retrieval_id
         self._api_base = api_base
-        self._api_token = api_token
+        self._api_key = api_key
         self._content_api_base = content_api_base
         self._project_path = project_path
 
@@ -270,7 +270,7 @@ class BaseRetrieval:
         doc_type: Optional[str | DocType] = None,
         retrieval_id: Optional[int] = None,
         api_base: Optional[str] = None,
-        api_token: Optional[str] = None,
+        api_key: Optional[str] = None,
         content_api_base: Optional[str] = None,
         project_path: Optional[Path] = None,
         **params: Any,
@@ -292,7 +292,7 @@ class BaseRetrieval:
         base_url = api_base or self._api_base or os.environ.get("COGSOL_API_BASE") or content_base
         if not content_base:
             raise CogSolAPIError("COGSOL_CONTENT_API_BASE is required to run retrievals.")
-        token = api_token or self._api_token or os.environ.get("COGSOL_API_TOKEN")
+        token = api_key or self._api_key or os.environ.get("COGSOL_API_KEY")
 
         retrieval_id = retrieval_id or self._retrieval_id
         if retrieval_id is None:
@@ -312,7 +312,7 @@ class BaseRetrieval:
             payload[key] = self._normalize_payload_value(value)
 
         if base_url:
-            client = CogSolClient(base_url, token=token, content_base_url=content_base)
+            client = CogSolClient(base_url, api_key=token, content_base_url=content_base)
         else:
             raise CogSolAPIError("COGSOL_CONTENT_API_BASE is required to run retrievals.")
         return client.request(

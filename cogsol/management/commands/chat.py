@@ -317,7 +317,7 @@ class Command(BaseCommand):
         load_dotenv(project_path / ".env")
 
         api_base = os.environ.get("COGSOL_API_BASE")
-        api_token = os.environ.get("COGSOL_API_TOKEN")
+        api_key = os.environ.get("COGSOL_API_KEY")
         if not api_base:
             print_error("COGSOL_API_BASE is required in .env to chat with CogSol.")
             return 1
@@ -328,7 +328,7 @@ class Command(BaseCommand):
             print_error(f"Could not resolve agent '{agent}'. Run migrate first.")
             return 1
 
-        client = CogSolClient(api_base, token=api_token)
+        client = CogSolClient(api_base, api_key=api_key)
         initial_message = self._assistant_initial_message(client, assistant_id)
 
         # Start a new chat and show banner

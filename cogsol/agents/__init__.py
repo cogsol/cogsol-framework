@@ -58,13 +58,13 @@ class BaseAgent:
         assistant_id: Optional[int] = None,
         chat_id: Optional[int] = None,
         api_base: Optional[str] = None,
-        api_token: Optional[str] = None,
+        api_key: Optional[str] = None,
         project_path: Optional[Path] = None,
     ) -> None:
         self._assistant_id = assistant_id
         self._chat_id = chat_id
         self._api_base = api_base
-        self._api_token = api_token
+        self._api_key = api_key
         self._project_path = project_path
 
     def reset(self) -> None:
@@ -78,7 +78,7 @@ class BaseAgent:
         reset: bool = False,
         assistant_id: Optional[int] = None,
         api_base: Optional[str] = None,
-        api_token: Optional[str] = None,
+        api_key: Optional[str] = None,
         project_path: Optional[Path] = None,
         async_mode: bool = False,
         streaming: bool = False,
@@ -101,7 +101,7 @@ class BaseAgent:
         base_url = api_base or self._api_base or os.environ.get("COGSOL_API_BASE")
         if not base_url:
             raise CogSolAPIError("COGSOL_API_BASE is required to run agents.")
-        token = api_token or self._api_token or os.environ.get("COGSOL_API_TOKEN")
+        token = api_key or self._api_key or os.environ.get("COGSOL_API_KEY")
 
         assistant_id = assistant_id or self._assistant_id
         if assistant_id is None:
@@ -118,7 +118,7 @@ class BaseAgent:
                 continue
             payload[key] = self._normalize_payload_value(value)
 
-        client = CogSolClient(base_url, token=token)
+        client = CogSolClient(base_url, api_key=token)
         if self._chat_id is None:
             chat = client.create_chat(
                 assistant_id,

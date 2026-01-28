@@ -214,7 +214,11 @@ def _extract_tool_params(tool_cls: type[BaseTool]) -> dict[str, Any]:
         required = meta.get("required")
         if required is None:
             required = param.default is inspect._empty
-        params[name] = {"description": desc, "type": typ, "required": bool(required)}
+        param_dict = {"description": desc, "type": typ, "required": bool(required)}
+        # Include 'items' for array types if specified in decorator
+        if typ == "array" and "items" in meta:
+            param_dict["items"] = meta["items"]
+        params[name] = param_dict
     return params
 
 

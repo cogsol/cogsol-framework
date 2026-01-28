@@ -290,13 +290,13 @@ class Command(BaseCommand):
         import os
 
         api_base = os.environ.get("COGSOL_API_BASE")
-        api_token = os.environ.get("COGSOL_API_TOKEN")
+        api_key = os.environ.get("COGSOL_API_KEY")
         content_base = os.environ.get("COGSOL_CONTENT_API_BASE") or api_base
         if not api_base:
             print("COGSOL_API_BASE is required in .env to import.")
             return 1
 
-        client = CogSolClient(api_base, token=api_token, content_base_url=content_base)
+        client = CogSolClient(api_base, api_key=api_key, content_base_url=content_base)
         try:
             assistant = client.get_assistant(assistant_id)
             faqs = client.list_common_questions(assistant_id) or []

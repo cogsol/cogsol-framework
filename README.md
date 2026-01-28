@@ -126,7 +126,12 @@ Copy `.env.example` to `.env` and set your API credentials:
 COGSOL_ENV=local
 COGSOL_API_BASE=https://api.cogsol.ai/cognitive/
 COGSOL_CONTENT_API_BASE=https://api.cogsol.ai/content/
-COGSOL_API_TOKEN=your-api-token
+COGSOL_
+COGSOL_API_KEY=your-api-key
+# Optional: Azure AD B2C client credentials for JWT
+# If not provided, the Auth will be skipped
+COGSOL_AUTH_CLIENT_ID=your-client-id
+COGSOL_AUTH_SECRET=your-client-secret
 ```
 
 ### 4. Create Migrations
@@ -667,8 +672,15 @@ from cogsol.content import BaseRetrieval, ReorderingStrategy
 |----------|----------|-------------|
 | `COGSOL_API_BASE` | Yes | Base URL for the CogSol Cognitive API |
 | `COGSOL_CONTENT_API_BASE` | No | Base URL for the CogSol Content API (defaults to `COGSOL_API_BASE`) |
-| `COGSOL_API_TOKEN` | Yes | API authentication token |
+| `COGSOL_API_KEY` | Yes | API Key authentication |
 | `COGSOL_ENV` | No | Environment name (e.g., `local`, `production`) |
+| `COGSOL_AUTH_CLIENT_ID` | No | Client Id provided for adminitrators |
+| `COGSOL_AUTH_SECRET` | No | Auth Secret provided for adminitrators |
+
+# Optional: Azure AD B2C client credentials for JWT\
+# If not provided, the Auth will be skipped
+COGSOL_AUTH_CLIENT_ID=your-client-id
+COGSOL_AUTH_SECRET=your-client-secret
 
 ### Project Settings (`settings.py`)
 

@@ -60,7 +60,7 @@ class Command(BaseCommand):
 
         load_dotenv(project_path / ".env")
         api_base = self._env("COGSOL_API_BASE")
-        api_token = self._env("COGSOL_API_TOKEN", required=False)
+        api_key = self._env("COGSOL_API_KEY", required=False)
         content_base = self._env("COGSOL_CONTENT_API_BASE", required=False) or api_base
         if not api_base:
             print("COGSOL_API_BASE is required in .env to run migrations against CogSol APIs.")
@@ -125,7 +125,7 @@ class Command(BaseCommand):
                     class_map = collect_content_classes(project_path, app_name)
                     remote_ids = self._sync_content_with_api(
                         api_base=content_base or api_base,
-                        api_token=api_token,
+                        api_key=api_key,
                         state=temp_state,
                         remote_ids=remote_ids,
                         class_map=class_map,
@@ -136,7 +136,7 @@ class Command(BaseCommand):
                     class_map = collect_classes(project_path, app_name)
                     remote_ids = self._sync_with_api(
                         api_base=api_base,
-                        api_token=api_token,
+                        api_key=api_key,
                         state=temp_state,
                         remote_ids=remote_ids,
                         class_map=class_map,
@@ -231,7 +231,7 @@ class Command(BaseCommand):
         self,
         *,
         api_base: str,
-        api_token: Optional[str],
+        api_key: Optional[str],
         state: dict[str, Any],
         remote_ids: dict[str, Any],
         class_map: dict[str, dict[str, type]],
@@ -239,7 +239,7 @@ class Command(BaseCommand):
         touched: Optional[dict[str, set[str]]] = None,
     ) -> dict[str, Any]:
         """Sync Content API entities (topics, formatters, retrievals) with the API."""
-        client = CogSolClient(api_base, token=api_token, content_base_url=api_base)
+        client = CogSolClient(api_base, api_key=api_key, content_base_url=api_base)
         created: list[tuple[str, Optional[int], int]] = []
         new_remote = copy.deepcopy(remote_ids)
 
@@ -486,7 +486,7 @@ class Command(BaseCommand):
         self,
         *,
         api_base: str,
-        api_token: Optional[str],
+        api_key: Optional[str],
         state: dict[str, Any],
         remote_ids: dict[str, Any],
         class_map: dict[str, dict[str, type]],
@@ -494,7 +494,7 @@ class Command(BaseCommand):
         app: str,
         touched: Optional[dict[str, set[str]]] = None,
     ) -> dict[str, Any]:
-        client = CogSolClient(api_base, token=api_token)
+        client = CogSolClient(api_base, api_key=api_key)
         created: list[tuple[str, Optional[int], int]] = []
         new_remote = copy.deepcopy(remote_ids)
 
@@ -679,14 +679,16 @@ class Command(BaseCommand):
             param_def = definition.get("fields", {}).get("parameters", {}) if definition else {}
         for name, meta in (param_def or {}).items():
             meta = meta or {}
-            params.append(
-                {
-                    "name": name,
-                    "description": meta.get("description") or name,
-                    "type": meta.get("type") or "string",
-                    "required": bool(meta.get("required", True)),
-                }
-            )
+            param_entry = {
+                "name": name,
+                "description": meta.get("description") or name,
+                "type": meta.get("type") or "string",
+                "required": bool(meta.get("required", True)),
+            }
+            # Include 'items' for array types if specified
+            if param_entry["type"] == "array" and "items" in meta:
+                param_entry["items"] = meta["items"]
+            params.append(param_entry)
 
         description = (
             (definition.get("fields", {}) or {}).get("description") if definition else None

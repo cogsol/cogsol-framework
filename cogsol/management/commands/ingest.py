@@ -56,9 +56,9 @@ def get_client(project_path: Path) -> CogSolClient:
 
     api_base = api_base or os.environ.get("COGSOL_API_BASE", "http://localhost:8000")
     content_base = content_base or os.environ.get("COGSOL_CONTENT_API_BASE", api_base)
-    token = os.environ.get("COGSOL_API_TOKEN")
+    token = os.environ.get("COGSOL_API_KEY")
 
-    return CogSolClient(base_url=api_base, token=token, content_base_url=content_base)
+    return CogSolClient(base_url=api_base, api_key=token, content_base_url=content_base)
 
 
 def load_ingestion_config(project_path: Path, config_name: str) -> Optional[BaseIngestionConfig]:

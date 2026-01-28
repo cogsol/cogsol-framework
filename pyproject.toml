@@ -6,7 +6,10 @@ authors = [{ name = "Cognitive Solutions" }]
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.9"
-dependencies = []
+dependencies = [
+    "msal>=1.27",
+    "PyJWT>=2.8",
+]
 keywords = ["ai", "agents", "llm", "framework", "assistant", "chatbot"]
 classifiers = [
     "Development Status :: 3 - Alpha",
