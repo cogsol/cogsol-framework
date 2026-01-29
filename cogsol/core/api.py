@@ -73,7 +73,7 @@ class CogSolClient:
         api_key: Optional[str] = None,
         content_base_url: Optional[str] = None,
     ) -> None:
-        self.base_url = base_url or os.environ.get("COGSOL_API_BASE")
+        self.base_url = base_url or os.environ.get("COGSOL_API_BASE") or ""
         self.api_key = api_key or os.environ.get("COGSOL_API_KEY")
         self.content_base_url = content_base_url or os.environ.get("COGSOL_CONTENT_API_BASE")
         self.bearer_token = None
@@ -127,12 +127,10 @@ class CogSolClient:
     def _refresh_bearer_token(self) -> None:
         client_id = os.environ.get("COGSOL_AUTH_CLIENT_ID")
         client_secret = os.environ.get("COGSOL_AUTH_SECRET")
-        
+
         if not client_secret:
-            raise CogSolAPIError(
-                "Missing authentication configuration: COGSOL_AUTH_SECRET"
-            )
-        
+            raise CogSolAPIError("Missing authentication configuration: COGSOL_AUTH_SECRET")
+
         authority = "https://pyxiscognitivesweden.b2clogin.com/pyxiscognitivesweden.onmicrosoft.com/B2C_1A_CS_signup_signin_Sweden_MigrationOIDC"
         scopes = [f"https://pyxiscognitivesweden.onmicrosoft.com/{client_id}/.default"]
 
@@ -162,9 +160,7 @@ class CogSolClient:
         body = None
         if payload is not None:
             body = json.dumps(payload).encode("utf-8")
-        return self._request_with_retry(
-            method, path, body=body, use_content_api=use_content_api
-        )
+        return self._request_with_retry(method, path, body=body, use_content_api=use_content_api)
 
     def request_multipart(
         self,
@@ -191,7 +187,7 @@ class CogSolClient:
         *,
         body: Optional[bytes],
         use_content_api: bool,
-        content_type: Optional[str] = "application/json",
+        content_type: str = "application/json",
         retry_on_401: bool = True,
     ) -> Any:
         self._ensure_bearer_token(force=not retry_on_401)  # if we are retrying then force refresh
