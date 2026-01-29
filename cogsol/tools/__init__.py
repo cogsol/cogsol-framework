@@ -9,11 +9,11 @@ from typing import Any, Optional
 
 
 class BaseTool:
-    name: Optional[str] = None
-    description: Optional[str] = None
+    name: str | None = None
+    description: str | None = None
     parameters: dict[str, Any] = {}
 
-    def __init__(self, name: Optional[str] = None, description: Optional[str] = None):
+    def __init__(self, name: str | None = None, description: str | None = None):
         if name:
             self.name = name
         if description:
@@ -31,40 +31,40 @@ class BaseTool:
 
 
 class BaseLesson:
-    name: Optional[str] = None
-    content: Optional[str] = None
+    name: str | None = None
+    content: str | None = None
 
     def __repr__(self) -> str:
         return f"<Lesson {self.name or self.__class__.__name__}>"
 
 
 class BaseFAQ:
-    question: Optional[str] = None
-    answer: Optional[str] = None
+    question: str | None = None
+    answer: str | None = None
 
     def __repr__(self) -> str:
         return f"<FAQ {self.question or self.__class__.__name__}>"
 
 
 class BaseFixedResponse:
-    key: Optional[str] = None
-    response: Optional[str] = None
+    key: str | None = None
+    response: str | None = None
 
     def __repr__(self) -> str:
         return f"<FixedResponse {self.key or self.__class__.__name__}>"
 
 
 class BaseRetrievalTool:
-    name: Optional[str] = None
-    description: Optional[str] = None
+    name: str | None = None
+    description: str | None = None
     parameters: list[dict[str, Any]] = []
-    retrieval: Optional[str] = None
+    retrieval: str | None = None
     show_tool_message: bool = False
     show_assistant_message: bool = False
     edit_available: bool = True
     answer: bool = True
 
-    def __init__(self, name: Optional[str] = None, description: Optional[str] = None):
+    def __init__(self, name: str | None = None, description: str | None = None):
         if name:
             self.name = name
         if description:

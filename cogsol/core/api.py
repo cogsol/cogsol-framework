@@ -62,16 +62,16 @@ def _create_multipart_data(fields: dict[str, Any], files: dict[str, Path]) -> tu
 @dataclass
 class CogSolClient:
     base_url: str
-    api_key: Optional[str] = None
-    bearer_token: Optional[str] = None
-    bearer_token_expires_at: Optional[float] = None
-    content_base_url: Optional[str] = None  # Separate URL for Content API
+    api_key: str | None = None
+    bearer_token: str | None = None
+    bearer_token_expires_at: float | None = None
+    content_base_url: str | None = None  # Separate URL for Content API
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        api_key: Optional[str] = None,
-        content_base_url: Optional[str] = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        content_base_url: str | None = None,
     ) -> None:
         self.base_url = base_url or os.environ.get("COGSOL_API_BASE") or ""
         self.api_key = api_key or os.environ.get("COGSOL_API_KEY")
@@ -154,7 +154,7 @@ class CogSolClient:
         self,
         method: str,
         path: str,
-        payload: Optional[dict[str, Any]] = None,
+        payload: dict[str, Any] | None = None,
         use_content_api: bool = False,
     ) -> Any:
         body = None
@@ -185,7 +185,7 @@ class CogSolClient:
         method: str,
         path: str,
         *,
-        body: Optional[bytes],
+        body: bytes | None,
         use_content_api: bool,
         content_type: str = "application/json",
         retry_on_401: bool = True,
@@ -220,14 +220,14 @@ class CogSolClient:
             raise CogSolAPIError(f"{label} response did not include an id: {data}")
         return int(data["id"])
 
-    def upsert_script(self, *, remote_id: Optional[int], payload: dict[str, Any]) -> int:
+    def upsert_script(self, *, remote_id: int | None, payload: dict[str, Any]) -> int:
         if remote_id:
             data = self.request("PUT", f"/tools/scripts/{remote_id}/", payload)
         else:
             data = self.request("POST", "/tools/scripts/", payload)
         return self._ensure_id(data, "Script tool")
 
-    def upsert_assistant(self, *, remote_id: Optional[int], payload: dict[str, Any]) -> int:
+    def upsert_assistant(self, *, remote_id: int | None, payload: dict[str, Any]) -> int:
         if remote_id:
             data = self.request("PUT", f"/assistants/{remote_id}/", payload)
         else:
@@ -235,7 +235,7 @@ class CogSolClient:
         return self._ensure_id(data, "Assistant")
 
     def upsert_common_question(
-        self, *, assistant_id: int, remote_id: Optional[int], payload: dict[str, Any]
+        self, *, assistant_id: int, remote_id: int | None, payload: dict[str, Any]
     ) -> int:
         if remote_id:
             data = self.request(
@@ -260,7 +260,7 @@ class CogSolClient:
         raise CogSolAPIError(f"FAQ response did not include an id: {data}")
 
     def upsert_fixed_response(
-        self, *, assistant_id: int, remote_id: Optional[int], payload: dict[str, Any]
+        self, *, assistant_id: int, remote_id: int | None, payload: dict[str, Any]
     ) -> int:
         if remote_id:
             data = self.request(
@@ -286,7 +286,7 @@ class CogSolClient:
         raise CogSolAPIError(f"Fixed response did not include an id: {data}")
 
     def upsert_lesson(
-        self, *, assistant_id: int, remote_id: Optional[int], payload: dict[str, Any]
+        self, *, assistant_id: int, remote_id: int | None, payload: dict[str, Any]
     ) -> int:
         if remote_id:
             data = self.request(
@@ -313,9 +313,9 @@ class CogSolClient:
     def create_chat(
         self,
         assistant_id: int,
-        message: Optional[str] = None,
+        message: str | None = None,
         *,
-        payload: Optional[dict[str, Any]] = None,
+        payload: dict[str, Any] | None = None,
         async_mode: bool = False,
         streaming: bool = False,
     ) -> Any:
@@ -332,9 +332,9 @@ class CogSolClient:
     def send_message(
         self,
         chat_id: int,
-        message: Optional[str] = None,
+        message: str | None = None,
         *,
-        payload: Optional[dict[str, Any]] = None,
+        payload: dict[str, Any] | None = None,
         async_mode: bool = False,
         streaming: bool = False,
     ) -> Any:
@@ -357,7 +357,7 @@ class CogSolClient:
     def delete_script(self, script_id: int) -> None:
         self.request("DELETE", f"/tools/scripts/{script_id}/")
 
-    def upsert_retrieval_tool(self, *, remote_id: Optional[int], payload: dict[str, Any]) -> int:
+    def upsert_retrieval_tool(self, *, remote_id: int | None, payload: dict[str, Any]) -> int:
         if remote_id:
             data = self.request("PUT", f"/tools/retrievals/{remote_id}/", payload)
         else:
@@ -415,7 +415,7 @@ class CogSolClient:
         """Get a specific node by ID."""
         return self.request("GET", f"/nodes/{node_id}/", use_content_api=True)
 
-    def upsert_node(self, *, remote_id: Optional[int], payload: dict[str, Any]) -> int:
+    def upsert_node(self, *, remote_id: int | None, payload: dict[str, Any]) -> int:
         """Create or update a node (topic)."""
         if remote_id:
             data = self.request("PUT", f"/nodes/{remote_id}/", payload, use_content_api=True)
@@ -431,7 +431,7 @@ class CogSolClient:
     # Content API - Metadata Configs
     # =========================================================================
 
-    def list_metadata_configs(self, node_id: Optional[int] = None) -> Any:
+    def list_metadata_configs(self, node_id: int | None = None) -> Any:
         """List metadata configs, optionally filtered by node."""
         if node_id:
             return self.request("GET", f"/nodes/{node_id}/metadata_configs/", use_content_api=True)
@@ -487,7 +487,7 @@ class CogSolClient:
         return self.request("GET", f"/reference_formatters/{formatter_id}/", use_content_api=True)
 
     def upsert_reference_formatter(
-        self, *, remote_id: Optional[int], payload: dict[str, Any]
+        self, *, remote_id: int | None, payload: dict[str, Any]
     ) -> int:
         """Create or update a reference formatter."""
         if remote_id:
@@ -514,7 +514,7 @@ class CogSolClient:
         """Get a specific ingestion configuration by ID."""
         return self.request("GET", f"/ingestion-configs/{config_id}/", use_content_api=True)
 
-    def upsert_ingestion_config(self, *, remote_id: Optional[int], payload: dict[str, Any]) -> int:
+    def upsert_ingestion_config(self, *, remote_id: int | None, payload: dict[str, Any]) -> int:
         """Create or update an ingestion configuration."""
         if remote_id:
             data = self.request(
@@ -540,7 +540,7 @@ class CogSolClient:
         """Get a specific retrieval configuration by ID."""
         return self.request("GET", f"/retrievals/{retrieval_id}/", use_content_api=True)
 
-    def upsert_retrieval(self, *, remote_id: Optional[int], payload: dict[str, Any]) -> int:
+    def upsert_retrieval(self, *, remote_id: int | None, payload: dict[str, Any]) -> int:
         """Create or update a retrieval configuration."""
         if remote_id:
             data = self.request("PUT", f"/retrievals/{remote_id}/", payload, use_content_api=True)
@@ -553,7 +553,7 @@ class CogSolClient:
         self.request("DELETE", f"/retrievals/{retrieval_id}/", use_content_api=True)
 
     def retrieve_similar_blocks(
-        self, retrieval_id: int, question: str, doc_type: Optional[str] = None
+        self, retrieval_id: int, question: str, doc_type: str | None = None
     ) -> Any:
         """Execute a semantic search using a retrieval configuration."""
         payload: dict[str, Any] = {"question": question}
@@ -606,13 +606,13 @@ class CogSolClient:
         name: str,
         node_id: int,
         doc_type: str = "general",
-        metadata: Optional[list[dict[str, Any]]] = None,
-        ingestion_config_id: Optional[int] = None,
+        metadata: list[dict[str, Any]] | None = None,
+        ingestion_config_id: int | None = None,
         pdf_parsing_mode: str = "both",
         chunking_mode: str = "langchain",
         max_size_block: int = 1500,
         chunk_overlap: int = 0,
-        separators: Optional[list[str]] = None,
+        separators: list[str] | None = None,
         ocr: bool = False,
         additional_prompt_instructions: str = "",
         assign_paths_as_metadata: bool = False,
@@ -681,12 +681,12 @@ class CogSolClient:
         file_paths: list[str | Path],
         node_id: int,
         doc_type: str = "general",
-        ingestion_config_id: Optional[int] = None,
+        ingestion_config_id: int | None = None,
         pdf_parsing_mode: str = "both",
         chunking_mode: str = "langchain",
         max_size_block: int = 1500,
         chunk_overlap: int = 0,
-        separators: Optional[list[str]] = None,
+        separators: list[str] | None = None,
         ocr: bool = False,
         additional_prompt_instructions: str = "",
         assign_paths_as_metadata: bool = False,

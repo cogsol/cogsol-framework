@@ -61,7 +61,7 @@ def get_client(project_path: Path) -> CogSolClient:
     return CogSolClient(base_url=api_base, api_key=token, content_base_url=content_base)
 
 
-def load_ingestion_config(project_path: Path, config_name: str) -> Optional[BaseIngestionConfig]:
+def load_ingestion_config(project_path: Path, config_name: str) -> BaseIngestionConfig | None:
     """Load an ingestion config by name from data/ingestion.py."""
     sys.path.insert(0, str(project_path))
     try:
@@ -89,7 +89,7 @@ def load_ingestion_config(project_path: Path, config_name: str) -> Optional[Base
             pass
 
 
-def find_topic_node_id(client: CogSolClient, topic_path: str) -> Optional[int]:
+def find_topic_node_id(client: CogSolClient, topic_path: str) -> int | None:
     """
     Find the node ID for a topic given its path (e.g., 'parent/child/topic').
 
@@ -131,7 +131,7 @@ def find_topic_node_id(client: CogSolClient, topic_path: str) -> Optional[int]:
     return None
 
 
-def collect_files(paths: list[str], pattern: Optional[str] = None) -> list[Path]:
+def collect_files(paths: list[str], pattern: str | None = None) -> list[Path]:
     """Collect files from paths, expanding globs and directories."""
     files = []
     for path_str in paths:
@@ -307,7 +307,7 @@ class Command(BaseCommand):
             return 1
 
         # Look up ingestion config if provided
-        ing_config: Optional[BaseIngestionConfig] = None
+        ing_config: BaseIngestionConfig | None = None
         if ingestion_config:
             ing_config = load_ingestion_config(project_path, ingestion_config)
             if ing_config is None:

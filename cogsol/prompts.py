@@ -9,7 +9,7 @@ from typing import Optional
 
 
 class Prompt:
-    def __init__(self, path: str, base_dir: Optional[str] = None) -> None:
+    def __init__(self, path: str, base_dir: str | None = None) -> None:
         self.path = path
         self.base_dir = base_dir
 
@@ -28,7 +28,7 @@ class Prompts:
         import inspect
 
         caller_frame = inspect.currentframe()
-        base_dir: Optional[str] = None
+        base_dir: str | None = None
         if caller_frame and caller_frame.f_back:
             caller_file = caller_frame.f_back.f_code.co_filename
             try:

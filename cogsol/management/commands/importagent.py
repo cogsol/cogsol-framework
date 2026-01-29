@@ -170,7 +170,7 @@ def _retrieval_tool_class_name(tool: dict[str, Any]) -> str:
     return base_name if base_name.endswith("Search") else base_name + "Search"
 
 
-def _retrieval_tool_class_from_api(tool: dict[str, Any], retrieval_name: Optional[str]) -> str:
+def _retrieval_tool_class_from_api(tool: dict[str, Any], retrieval_name: str | None) -> str:
     name = tool.get("name") or "Search"
     class_name = _retrieval_tool_class_name(tool)
     description = tool.get("description") or f"Retrieval tool {name}"
@@ -375,9 +375,9 @@ class {class_name}(BaseAgent):
         scripts_by_id: dict[int, dict[str, Any]] = {}
         retrieval_tools: list[dict[str, Any]] = []
         retrieval_tools_by_id: dict[int, dict[str, Any]] = {}
-        retrieval_cache: dict[int, Optional[str]] = {}
+        retrieval_cache: dict[int, str | None] = {}
 
-        def _resolve_retrieval_name(retrieval_id: Optional[int]) -> Optional[str]:
+        def _resolve_retrieval_name(retrieval_id: int | None) -> str | None:
             if not retrieval_id:
                 return None
             if retrieval_id in retrieval_cache:
@@ -454,20 +454,20 @@ class {class_name}(BaseAgent):
             has_retrieval_tools = True
 
         # Update tools list in agent.py
-        def class_name_for_script(script_id: int) -> Optional[str]:
+        def class_name_for_script(script_id: int) -> str | None:
             script = scripts_by_id.get(int(script_id))
             if not script:
                 return None
             base_name = _safe_class_name(script.get("name") or "Tool", "Imported")
             return base_name if base_name.endswith("Tool") else base_name + "Tool"
 
-        def class_name_for_retrieval_tool(tool_id: int) -> Optional[str]:
+        def class_name_for_retrieval_tool(tool_id: int) -> str | None:
             tool = retrieval_tools_by_id.get(int(tool_id))
             if not tool:
                 return None
             return _retrieval_tool_class_name(tool)
 
-        def _tool_class_for_id(tool_id: int) -> Optional[str]:
+        def _tool_class_for_id(tool_id: int) -> str | None:
             return class_name_for_script(tool_id) or class_name_for_retrieval_tool(tool_id)
 
         tool_class_names = [n for n in (_tool_class_for_id(sid) for sid in tools_ids) if n]
@@ -537,7 +537,7 @@ class {class_name}(BaseAgent):
                 f"        migrations.CreateRetrievalTool(name={tname!r}, fields={fields!r}),"
             )
 
-        def _tool_name_for_id(tool_id: int) -> Optional[str]:
+        def _tool_name_for_id(tool_id: int) -> str | None:
             script = scripts_by_id.get(int(tool_id))
             if script:
                 return script.get("name")
@@ -703,7 +703,7 @@ class {class_name}(BaseAgent):
                     return node
                 return {}
 
-            def _node_parent_id(node: dict[str, Any]) -> Optional[int]:
+            def _node_parent_id(node: dict[str, Any]) -> int | None:
                 parent = node.get("parent")
                 if isinstance(parent, dict):
                     return parent.get("id")
@@ -713,7 +713,7 @@ class {class_name}(BaseAgent):
 
             def _node_chain(node_id: int) -> list[dict[str, Any]]:
                 chain: list[dict[str, Any]] = []
-                current: Optional[int] = node_id
+                current: int | None = node_id
                 while current is not None:
                     node = _get_node(current)
                     if not node:

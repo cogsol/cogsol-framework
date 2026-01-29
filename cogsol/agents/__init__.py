@@ -23,18 +23,18 @@ class BaseAgent:
     """
 
     system_prompt: Any = None
-    initial_message: Optional[str] = None
-    forced_termination_message: Optional[str] = None
-    no_information_message: Optional[str] = None
+    initial_message: str | None = None
+    forced_termination_message: str | None = None
+    no_information_message: str | None = None
     pregeneration_config: Any = None
     generation_config: Any = None
     pretools: list[Any] = []
     tools: list[Any] = []
-    temperature: Optional[float] = None
-    max_interactions: Optional[int] = None
-    user_message_length: Optional[int] = None
-    consecutive_tool_calls_limit: Optional[int] = None
-    user_interactions_window: Optional[int] = None
+    temperature: float | None = None
+    max_interactions: int | None = None
+    user_message_length: int | None = None
+    consecutive_tool_calls_limit: int | None = None
+    user_interactions_window: int | None = None
     token_optimization: Any = None
     streaming: bool = False
     self_improvement_mode: bool = False
@@ -44,22 +44,22 @@ class BaseAgent:
     fixed_responses: list[Any] = []
 
     class Meta:
-        name: Optional[str] = None
-        chat_name: Optional[str] = None
-        logo_url: Optional[str] = None
-        assistant_name_color: Optional[str] = None
-        primary_color: Optional[str] = None
-        secondary_color: Optional[str] = None
-        border_color: Optional[str] = None
+        name: str | None = None
+        chat_name: str | None = None
+        logo_url: str | None = None
+        assistant_name_color: str | None = None
+        primary_color: str | None = None
+        secondary_color: str | None = None
+        border_color: str | None = None
 
     def __init__(
         self,
         *,
-        assistant_id: Optional[int] = None,
-        chat_id: Optional[int] = None,
-        api_base: Optional[str] = None,
-        api_key: Optional[str] = None,
-        project_path: Optional[Path] = None,
+        assistant_id: int | None = None,
+        chat_id: int | None = None,
+        api_base: str | None = None,
+        api_key: str | None = None,
+        project_path: Path | None = None,
     ) -> None:
         self._assistant_id = assistant_id
         self._chat_id = chat_id
@@ -76,10 +76,10 @@ class BaseAgent:
         message: str,
         *,
         reset: bool = False,
-        assistant_id: Optional[int] = None,
-        api_base: Optional[str] = None,
-        api_key: Optional[str] = None,
-        project_path: Optional[Path] = None,
+        assistant_id: int | None = None,
+        api_base: str | None = None,
+        api_key: str | None = None,
+        project_path: Path | None = None,
         async_mode: bool = False,
         streaming: bool = False,
         **params: Any,
@@ -155,7 +155,7 @@ class BaseAgent:
             },
         }
 
-    def _resolve_project_path(self, project_path: Optional[Path]) -> Optional[Path]:
+    def _resolve_project_path(self, project_path: Path | None) -> Path | None:
         if project_path is not None:
             return project_path
         if self._project_path is not None:
@@ -169,7 +169,7 @@ class BaseAgent:
                     return parent.parent
         return None
 
-    def _resolve_assistant_id(self, project_path: Optional[Path]) -> Optional[int]:
+    def _resolve_assistant_id(self, project_path: Path | None) -> int | None:
         if project_path is None:
             project_path = Path.cwd()
         state_path = project_path / "agents" / "migrations" / ".state.json"
@@ -192,7 +192,7 @@ class BaseAgent:
             return int(value)
         return None
 
-    def _chat_id_from_response(self, chat_obj: Any) -> Optional[int]:
+    def _chat_id_from_response(self, chat_obj: Any) -> int | None:
         if isinstance(chat_obj, dict):
             value = chat_obj.get("id")
             if isinstance(value, int):

@@ -768,7 +768,7 @@ def _collect_retrievals(project_path: Path) -> dict[str, dict[str, Any]]:
 
         fields, meta = _extract_class_fields(obj)
         topic_value = getattr(obj, "topic", None)
-        topic_cls: Optional[type[BaseTopic]] = None
+        topic_cls: type[BaseTopic] | None = None
         if isinstance(topic_value, BaseTopic):
             topic_cls = type(topic_value)
         elif isinstance(topic_value, type) and issubclass(topic_value, BaseTopic):

@@ -37,7 +37,7 @@ def get_client(project_path: Path) -> CogSolClient:
     return CogSolClient(base_url=api_base, api_key=api_key, content_base_url=content_base)
 
 
-def build_tree(nodes: list[dict], parent_id: Optional[int] = None, prefix: str = "") -> list[str]:
+def build_tree(nodes: list[dict], parent_id: int | None = None, prefix: str = "") -> list[str]:
     """Build a tree representation of nodes."""
     lines = []
     children = [n for n in nodes if n.get("parent") == parent_id]

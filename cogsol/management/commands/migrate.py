@@ -34,7 +34,7 @@ def _normalize_code(code: Any) -> str:
     return textwrap.dedent(code).rstrip()
 
 
-def sub_slug(cls: Optional[type]) -> Optional[str]:
+def sub_slug(cls: type | None) -> str | None:
     if cls and hasattr(cls, "__module__"):
         parts = cls.__module__.split(".")
         if len(parts) >= 2:
@@ -157,7 +157,7 @@ class Command(BaseCommand):
         return exit_code
 
     # ------------------------------------------------------------------ helpers
-    def _env(self, key: str, required: bool = True) -> Optional[str]:
+    def _env(self, key: str, required: bool = True) -> str | None:
         import os
 
         value = os.environ.get(key)
@@ -231,16 +231,16 @@ class Command(BaseCommand):
         self,
         *,
         api_base: str,
-        api_key: Optional[str],
+        api_key: str | None,
         state: dict[str, Any],
         remote_ids: dict[str, Any],
         class_map: dict[str, dict[str, type]],
         project_path: Path,
-        touched: Optional[dict[str, set[str]]] = None,
+        touched: dict[str, set[str]] | None = None,
     ) -> dict[str, Any]:
         """Sync Content API entities (topics, formatters, retrievals) with the API."""
         client = CogSolClient(api_base, api_key=api_key, content_base_url=api_base)
-        created: list[tuple[str, Optional[int], int]] = []
+        created: list[tuple[str, int | None, int]] = []
         new_remote = copy.deepcopy(remote_ids)
 
         try:
@@ -486,16 +486,16 @@ class Command(BaseCommand):
         self,
         *,
         api_base: str,
-        api_key: Optional[str],
+        api_key: str | None,
         state: dict[str, Any],
         remote_ids: dict[str, Any],
         class_map: dict[str, dict[str, type]],
         project_path: Path,
         app: str,
-        touched: Optional[dict[str, set[str]]] = None,
+        touched: dict[str, set[str]] | None = None,
     ) -> dict[str, Any]:
         client = CogSolClient(api_base, api_key=api_key)
-        created: list[tuple[str, Optional[int], int]] = []
+        created: list[tuple[str, int | None, int]] = []
         new_remote = copy.deepcopy(remote_ids)
 
         try:
@@ -670,7 +670,7 @@ class Command(BaseCommand):
         self,
         tool_name: str,
         definition: dict[str, Any],
-        cls: Optional[type[BaseTool]],
+        cls: type[BaseTool] | None,
     ) -> dict[str, Any]:
         params = []
         if cls is not None:
@@ -715,7 +715,7 @@ class Command(BaseCommand):
         *,
         tool_name: str,
         definition: dict[str, Any],
-        cls: Optional[type],
+        cls: type | None,
         project_path: Path,
     ) -> dict[str, Any]:
         fields = definition.get("fields", {}) if definition else {}
@@ -776,11 +776,11 @@ class Command(BaseCommand):
         *,
         agent_name: str,
         definition: dict[str, Any],
-        cls: Optional[type],
+        cls: type | None,
         remote_ids: dict[str, Any],
         project_path: Path,
         app: str,
-        slug: Optional[str] = None,
+        slug: str | None = None,
     ) -> dict[str, Any]:
         fields = definition.get("fields", {}) if definition else {}
         meta = definition.get("meta", {}) if definition else {}
@@ -844,7 +844,7 @@ class Command(BaseCommand):
         tools = getattr(cls, "tools", []) if cls else []
         pretools = getattr(cls, "pretools", []) if cls else []
 
-        def _resolve_tool_id(t) -> Optional[int]:
+        def _resolve_tool_id(t) -> int | None:
             candidates = [
                 getattr(t, "name", None),
                 _tool_key(t),
@@ -983,7 +983,7 @@ class Command(BaseCommand):
             rewritten = re.sub(rf"\bself\.{name}\b", name, rewritten)
         return rewritten
 
-    def _tool_script_from_class(self, cls: Optional[type[BaseTool]]) -> str:
+    def _tool_script_from_class(self, cls: type[BaseTool] | None) -> str:
         if cls is None:
             return ""
         try:

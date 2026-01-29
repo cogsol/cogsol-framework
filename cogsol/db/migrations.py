@@ -28,7 +28,7 @@ def _ensure_bucket(state: dict[str, Any], entity: str) -> dict[str, Any]:
 class CreateDefinition:
     name: str
     fields: dict[str, Any]
-    meta: Optional[dict[str, Any]] = None
+    meta: dict[str, Any] | None = None
     entity: str = field(default="agents")
 
     def apply(self, state: dict[str, Any]) -> None:
@@ -44,7 +44,7 @@ class CreateDefinition:
 
 class CreateAgent(CreateDefinition):
     def __init__(
-        self, name: str, fields: dict[str, Any], meta: Optional[dict[str, Any]] = None
+        self, name: str, fields: dict[str, Any], meta: dict[str, Any] | None = None
     ) -> None:
         super().__init__(name=name, fields=fields, meta=meta, entity="agents")
 
@@ -83,7 +83,7 @@ class CreateTopic(CreateDefinition):
     """Creates a Topic (Node) in the Content API."""
 
     def __init__(
-        self, name: str, fields: dict[str, Any], meta: Optional[dict[str, Any]] = None
+        self, name: str, fields: dict[str, Any], meta: dict[str, Any] | None = None
     ) -> None:
         super().__init__(name=name, fields=fields, meta=meta, entity="topics")
 

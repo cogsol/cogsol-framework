@@ -339,7 +339,7 @@ class Command(BaseCommand):
         if initial_message:
             print_ai_message(initial_message)
 
-        chat_id: Optional[int] = None
+        chat_id: int | None = None
         history_printed = 0
 
         while True:
@@ -426,7 +426,7 @@ class Command(BaseCommand):
         except json.JSONDecodeError:
             return {}
 
-    def _resolve_agent_id(self, agent: str, remote_ids: dict[str, Any]) -> Optional[int]:
+    def _resolve_agent_id(self, agent: str, remote_ids: dict[str, Any]) -> int | None:
         # direct numeric id
         try:
             return int(agent)
@@ -446,7 +446,7 @@ class Command(BaseCommand):
                 return value.strip()
         return ""
 
-    def _chat_id(self, chat_obj: Any) -> Optional[int]:
+    def _chat_id(self, chat_obj: Any) -> int | None:
         if isinstance(chat_obj, dict):
             value = chat_obj.get("id")
             if isinstance(value, int):
