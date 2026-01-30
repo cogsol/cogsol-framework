@@ -486,9 +486,7 @@ class CogSolClient:
         """Get a specific reference formatter by ID."""
         return self.request("GET", f"/reference_formatters/{formatter_id}/", use_content_api=True)
 
-    def upsert_reference_formatter(
-        self, *, remote_id: int | None, payload: dict[str, Any]
-    ) -> int:
+    def upsert_reference_formatter(self, *, remote_id: int | None, payload: dict[str, Any]) -> int:
         """Create or update a reference formatter."""
         if remote_id:
             data = self.request(
