@@ -12,7 +12,7 @@ import os
 import sys
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from cogsol.core.api import CogSolAPIError, CogSolClient
 from cogsol.core.env import load_dotenv

@@ -8,7 +8,7 @@ import importlib
 import inspect
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from cogsol.content import BaseIngestionConfig, DocType
 from cogsol.core.api import CogSolClient

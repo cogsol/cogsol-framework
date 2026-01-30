@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from cogsol.core.api import CogSolClient
 from cogsol.core.env import load_dotenv

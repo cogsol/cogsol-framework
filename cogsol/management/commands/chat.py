@@ -7,7 +7,7 @@ import sys
 import textwrap
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from cogsol.core.api import CogSolAPIError, CogSolClient
 from cogsol.core.env import load_dotenv

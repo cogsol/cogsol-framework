@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from cogsol.core.api import CogSolAPIError, CogSolClient
 from cogsol.core.env import load_dotenv
