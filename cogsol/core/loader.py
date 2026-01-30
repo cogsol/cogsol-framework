@@ -10,7 +10,7 @@ import sys
 import textwrap
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 
 from typing_extensions import TypeAlias
 
@@ -214,7 +214,11 @@ def _extract_tool_params(tool_cls: type[BaseTool]) -> dict[str, Any]:
         required = meta.get("required")
         if required is None:
             required = param.default is inspect._empty
-        params[name] = {"description": desc, "type": typ, "required": bool(required)}
+        param_dict = {"description": desc, "type": typ, "required": bool(required)}
+        # Include 'items' for array types if specified in decorator
+        if typ == "array" and "items" in meta:
+            param_dict["items"] = meta["items"]
+        params[name] = param_dict
     return params
 
 
@@ -764,7 +768,7 @@ def _collect_retrievals(project_path: Path) -> dict[str, dict[str, Any]]:
 
         fields, meta = _extract_class_fields(obj)
         topic_value = getattr(obj, "topic", None)
-        topic_cls: Optional[type[BaseTopic]] = None
+        topic_cls: type[BaseTopic] | None = None
         if isinstance(topic_value, BaseTopic):
             topic_cls = type(topic_value)
         elif isinstance(topic_value, type) and issubclass(topic_value, BaseTopic):

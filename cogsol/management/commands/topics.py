@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from cogsol.core.api import CogSolClient
 from cogsol.core.env import load_dotenv
@@ -32,12 +32,12 @@ def get_client(project_path: Path) -> CogSolClient:
 
     api_base = api_base or os.environ.get("COGSOL_API_BASE", "http://localhost:8000")
     content_base = content_base or os.environ.get("COGSOL_CONTENT_API_BASE", api_base)
-    token = os.environ.get("COGSOL_API_TOKEN")
+    api_key = os.environ.get("COGSOL_API_KEY")
 
-    return CogSolClient(base_url=api_base, token=token, content_base_url=content_base)
+    return CogSolClient(base_url=api_base, api_key=api_key, content_base_url=content_base)
 
 
-def build_tree(nodes: list[dict], parent_id: Optional[int] = None, prefix: str = "") -> list[str]:
+def build_tree(nodes: list[dict], parent_id: int | None = None, prefix: str = "") -> list[str]:
     """Build a tree representation of nodes."""
     lines = []
     children = [n for n in nodes if n.get("parent") == parent_id]

@@ -7,7 +7,7 @@ import sys
 import textwrap
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from cogsol.core.api import CogSolAPIError, CogSolClient
 from cogsol.core.env import load_dotenv
@@ -317,7 +317,7 @@ class Command(BaseCommand):
         load_dotenv(project_path / ".env")
 
         api_base = os.environ.get("COGSOL_API_BASE")
-        api_token = os.environ.get("COGSOL_API_TOKEN")
+        api_key = os.environ.get("COGSOL_API_KEY")
         if not api_base:
             print_error("COGSOL_API_BASE is required in .env to chat with CogSol.")
             return 1
@@ -328,7 +328,7 @@ class Command(BaseCommand):
             print_error(f"Could not resolve agent '{agent}'. Run migrate first.")
             return 1
 
-        client = CogSolClient(api_base, token=api_token)
+        client = CogSolClient(api_base, api_key=api_key)
         initial_message = self._assistant_initial_message(client, assistant_id)
 
         # Start a new chat and show banner
@@ -339,7 +339,7 @@ class Command(BaseCommand):
         if initial_message:
             print_ai_message(initial_message)
 
-        chat_id: Optional[int] = None
+        chat_id: int | None = None
         history_printed = 0
 
         while True:
@@ -426,7 +426,7 @@ class Command(BaseCommand):
         except json.JSONDecodeError:
             return {}
 
-    def _resolve_agent_id(self, agent: str, remote_ids: dict[str, Any]) -> Optional[int]:
+    def _resolve_agent_id(self, agent: str, remote_ids: dict[str, Any]) -> int | None:
         # direct numeric id
         try:
             return int(agent)
@@ -446,7 +446,7 @@ class Command(BaseCommand):
                 return value.strip()
         return ""
 
-    def _chat_id(self, chat_obj: Any) -> Optional[int]:
+    def _chat_id(self, chat_obj: Any) -> int | None:
         if isinstance(chat_obj, dict):
             value = chat_obj.get("id")
             if isinstance(value, int):

@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from urllib import error, request
+
+import msal
+from jwt import decode
 
 
 class CogSolAPIError(RuntimeError):
@@ -57,8 +62,25 @@ def _create_multipart_data(fields: dict[str, Any], files: dict[str, Path]) -> tu
 @dataclass
 class CogSolClient:
     base_url: str
-    token: Optional[str] = None
-    content_base_url: Optional[str] = None  # Separate URL for Content API
+    api_key: str | None = None
+    bearer_token: str | None = None
+    bearer_token_expires_at: float | None = None
+    content_base_url: str | None = None  # Separate URL for Content API
+
+    def __init__(
+        self,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        content_base_url: str | None = None,
+    ) -> None:
+        self.base_url = base_url or os.environ.get("COGSOL_API_BASE") or ""
+        self.api_key = api_key or os.environ.get("COGSOL_API_KEY")
+        self.content_base_url = content_base_url or os.environ.get("COGSOL_CONTENT_API_BASE")
+        self.bearer_token = None
+        self.bearer_token_expires_at = None
+
+        if self._bearer_configured():
+            self._ensure_bearer_token()
 
     def _url(self, path: str, use_content_api: bool = False) -> str:
         if path.startswith("http://") or path.startswith("https://"):
@@ -66,34 +88,79 @@ class CogSolClient:
         base = self.content_base_url if use_content_api and self.content_base_url else self.base_url
         return f"{base.rstrip('/')}/{path.lstrip('/')}"
 
-    def _headers(self) -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
-        if self.token:
-            headers["x-api-key"] = f"{self.token}"
+    def _headers(self, content_type: str) -> dict[str, str]:
+        headers = {"Content-Type": content_type}
+        if self.api_key:
+            headers["x-api-key"] = f"{self.api_key}"
+        if self.bearer_token:
+            headers["Authorization"] = f"Bearer {self.bearer_token}"
         return headers
+
+    def _bearer_configured(self) -> bool:
+        if self.bearer_token:
+            return True
+        return bool(os.environ.get("COGSOL_AUTH_CLIENT_ID"))
+
+    def _is_bearer_token_expired(self) -> bool:
+        if not self.bearer_token_expires_at:
+            return False
+        return time.time() >= self.bearer_token_expires_at
+
+    def _set_bearer_expiry_from_jwt(self, token: str) -> None:
+        try:
+            decoded = decode(token, options={"verify_signature": False})
+        except Exception:
+            return
+        exp = decoded.get("exp")
+        if isinstance(exp, (int, float)):
+            self.bearer_token_expires_at = float(exp) - 60.0
+
+    def _ensure_bearer_token(self, force: bool = False) -> None:
+        """Allows to force the token refresh when the expiry date is ok but
+        the token is no longer valid."""
+        if self.bearer_token and not self._is_bearer_token_expired() and not force:
+            return
+        if not os.environ.get("COGSOL_AUTH_CLIENT_ID"):
+            return
+        self._refresh_bearer_token()
+
+    def _refresh_bearer_token(self) -> None:
+        client_id = os.environ.get("COGSOL_AUTH_CLIENT_ID")
+        client_secret = os.environ.get("COGSOL_AUTH_SECRET")
+
+        if not client_secret:
+            raise CogSolAPIError("Missing authentication configuration: COGSOL_AUTH_SECRET")
+
+        authority = "https://pyxiscognitivesweden.b2clogin.com/pyxiscognitivesweden.onmicrosoft.com/B2C_1A_CS_signup_signin_Sweden_MigrationOIDC"
+        scopes = [f"https://pyxiscognitivesweden.onmicrosoft.com/{client_id}/.default"]
+
+        app = msal.ConfidentialClientApplication(
+            client_id,
+            authority=authority,
+            client_credential=client_secret,
+        )
+        result = app.acquire_token_for_client(scopes=scopes)
+
+        access_token = result.get("access_token") if isinstance(result, dict) else None
+        if not access_token:
+            error_code = result.get("error") if isinstance(result, dict) else None
+            error_desc = result.get("error_description") if isinstance(result, dict) else None
+            detail = f"{error_code}: {error_desc}".strip(": ")
+            raise CogSolAPIError(f"Token response missing access_token: {detail or result}")
+        self.bearer_token = access_token
+        self._set_bearer_expiry_from_jwt(access_token)
 
     def request(
         self,
         method: str,
         path: str,
-        payload: Optional[dict[str, Any]] = None,
+        payload: dict[str, Any] | None = None,
         use_content_api: bool = False,
     ) -> Any:
         body = None
         if payload is not None:
             body = json.dumps(payload).encode("utf-8")
-        req = request.Request(
-            self._url(path, use_content_api), data=body, headers=self._headers(), method=method
-        )
-        try:
-            with request.urlopen(req) as resp:
-                raw = resp.read().decode("utf-8")
-                return json.loads(raw) if raw else None
-        except error.HTTPError as exc:  # pragma: no cover - I/O
-            detail = exc.read().decode("utf-8", errors="ignore")
-            raise CogSolAPIError(f"{exc.code} {exc.reason}: {detail}") from exc
-        except error.URLError as exc:  # pragma: no cover - I/O
-            raise CogSolAPIError(f"Connection error: {exc.reason}") from exc
+        return self._request_with_retry(method, path, body=body, use_content_api=use_content_api)
 
     def request_multipart(
         self,
@@ -105,10 +172,26 @@ class CogSolClient:
     ) -> Any:
         """Send a multipart/form-data request for file uploads."""
         body, content_type = _create_multipart_data(fields, files)
-        headers = {"Content-Type": content_type}
-        if self.token:
-            headers["x-api-key"] = f"{self.token}"
+        return self._request_with_retry(
+            method,
+            path,
+            body=body,
+            use_content_api=use_content_api,
+            content_type=content_type,
+        )
 
+    def _request_with_retry(
+        self,
+        method: str,
+        path: str,
+        *,
+        body: bytes | None,
+        use_content_api: bool,
+        content_type: str = "application/json",
+        retry_on_401: bool = True,
+    ) -> Any:
+        self._ensure_bearer_token(force=not retry_on_401)  # if we are retrying then force refresh
+        headers = self._headers(content_type=content_type)
         req = request.Request(
             self._url(path, use_content_api), data=body, headers=headers, method=method
         )
@@ -117,6 +200,15 @@ class CogSolClient:
                 raw = resp.read().decode("utf-8")
                 return json.loads(raw) if raw else None
         except error.HTTPError as exc:  # pragma: no cover - I/O
+            if exc.code == 401 and retry_on_401 and self._bearer_configured():
+                return self._request_with_retry(
+                    method,
+                    path,
+                    body=body,
+                    use_content_api=use_content_api,
+                    content_type=content_type,
+                    retry_on_401=False,
+                )
             detail = exc.read().decode("utf-8", errors="ignore")
             raise CogSolAPIError(f"{exc.code} {exc.reason}: {detail}") from exc
         except error.URLError as exc:  # pragma: no cover - I/O
@@ -128,14 +220,14 @@ class CogSolClient:
             raise CogSolAPIError(f"{label} response did not include an id: {data}")
         return int(data["id"])
 
-    def upsert_script(self, *, remote_id: Optional[int], payload: dict[str, Any]) -> int:
+    def upsert_script(self, *, remote_id: int | None, payload: dict[str, Any]) -> int:
         if remote_id:
             data = self.request("PUT", f"/tools/scripts/{remote_id}/", payload)
         else:
             data = self.request("POST", "/tools/scripts/", payload)
         return self._ensure_id(data, "Script tool")
 
-    def upsert_assistant(self, *, remote_id: Optional[int], payload: dict[str, Any]) -> int:
+    def upsert_assistant(self, *, remote_id: int | None, payload: dict[str, Any]) -> int:
         if remote_id:
             data = self.request("PUT", f"/assistants/{remote_id}/", payload)
         else:
@@ -143,7 +235,7 @@ class CogSolClient:
         return self._ensure_id(data, "Assistant")
 
     def upsert_common_question(
-        self, *, assistant_id: int, remote_id: Optional[int], payload: dict[str, Any]
+        self, *, assistant_id: int, remote_id: int | None, payload: dict[str, Any]
     ) -> int:
         if remote_id:
             data = self.request(
@@ -168,7 +260,7 @@ class CogSolClient:
         raise CogSolAPIError(f"FAQ response did not include an id: {data}")
 
     def upsert_fixed_response(
-        self, *, assistant_id: int, remote_id: Optional[int], payload: dict[str, Any]
+        self, *, assistant_id: int, remote_id: int | None, payload: dict[str, Any]
     ) -> int:
         if remote_id:
             data = self.request(
@@ -194,7 +286,7 @@ class CogSolClient:
         raise CogSolAPIError(f"Fixed response did not include an id: {data}")
 
     def upsert_lesson(
-        self, *, assistant_id: int, remote_id: Optional[int], payload: dict[str, Any]
+        self, *, assistant_id: int, remote_id: int | None, payload: dict[str, Any]
     ) -> int:
         if remote_id:
             data = self.request(
@@ -221,9 +313,9 @@ class CogSolClient:
     def create_chat(
         self,
         assistant_id: int,
-        message: Optional[str] = None,
+        message: str | None = None,
         *,
-        payload: Optional[dict[str, Any]] = None,
+        payload: dict[str, Any] | None = None,
         async_mode: bool = False,
         streaming: bool = False,
     ) -> Any:
@@ -240,9 +332,9 @@ class CogSolClient:
     def send_message(
         self,
         chat_id: int,
-        message: Optional[str] = None,
+        message: str | None = None,
         *,
-        payload: Optional[dict[str, Any]] = None,
+        payload: dict[str, Any] | None = None,
         async_mode: bool = False,
         streaming: bool = False,
     ) -> Any:
@@ -265,7 +357,7 @@ class CogSolClient:
     def delete_script(self, script_id: int) -> None:
         self.request("DELETE", f"/tools/scripts/{script_id}/")
 
-    def upsert_retrieval_tool(self, *, remote_id: Optional[int], payload: dict[str, Any]) -> int:
+    def upsert_retrieval_tool(self, *, remote_id: int | None, payload: dict[str, Any]) -> int:
         if remote_id:
             data = self.request("PUT", f"/tools/retrievals/{remote_id}/", payload)
         else:
@@ -323,7 +415,7 @@ class CogSolClient:
         """Get a specific node by ID."""
         return self.request("GET", f"/nodes/{node_id}/", use_content_api=True)
 
-    def upsert_node(self, *, remote_id: Optional[int], payload: dict[str, Any]) -> int:
+    def upsert_node(self, *, remote_id: int | None, payload: dict[str, Any]) -> int:
         """Create or update a node (topic)."""
         if remote_id:
             data = self.request("PUT", f"/nodes/{remote_id}/", payload, use_content_api=True)
@@ -339,7 +431,7 @@ class CogSolClient:
     # Content API - Metadata Configs
     # =========================================================================
 
-    def list_metadata_configs(self, node_id: Optional[int] = None) -> Any:
+    def list_metadata_configs(self, node_id: int | None = None) -> Any:
         """List metadata configs, optionally filtered by node."""
         if node_id:
             return self.request("GET", f"/nodes/{node_id}/metadata_configs/", use_content_api=True)
@@ -394,9 +486,7 @@ class CogSolClient:
         """Get a specific reference formatter by ID."""
         return self.request("GET", f"/reference_formatters/{formatter_id}/", use_content_api=True)
 
-    def upsert_reference_formatter(
-        self, *, remote_id: Optional[int], payload: dict[str, Any]
-    ) -> int:
+    def upsert_reference_formatter(self, *, remote_id: int | None, payload: dict[str, Any]) -> int:
         """Create or update a reference formatter."""
         if remote_id:
             data = self.request(
@@ -422,7 +512,7 @@ class CogSolClient:
         """Get a specific ingestion configuration by ID."""
         return self.request("GET", f"/ingestion-configs/{config_id}/", use_content_api=True)
 
-    def upsert_ingestion_config(self, *, remote_id: Optional[int], payload: dict[str, Any]) -> int:
+    def upsert_ingestion_config(self, *, remote_id: int | None, payload: dict[str, Any]) -> int:
         """Create or update an ingestion configuration."""
         if remote_id:
             data = self.request(
@@ -448,7 +538,7 @@ class CogSolClient:
         """Get a specific retrieval configuration by ID."""
         return self.request("GET", f"/retrievals/{retrieval_id}/", use_content_api=True)
 
-    def upsert_retrieval(self, *, remote_id: Optional[int], payload: dict[str, Any]) -> int:
+    def upsert_retrieval(self, *, remote_id: int | None, payload: dict[str, Any]) -> int:
         """Create or update a retrieval configuration."""
         if remote_id:
             data = self.request("PUT", f"/retrievals/{remote_id}/", payload, use_content_api=True)
@@ -461,7 +551,7 @@ class CogSolClient:
         self.request("DELETE", f"/retrievals/{retrieval_id}/", use_content_api=True)
 
     def retrieve_similar_blocks(
-        self, retrieval_id: int, question: str, doc_type: Optional[str] = None
+        self, retrieval_id: int, question: str, doc_type: str | None = None
     ) -> Any:
         """Execute a semantic search using a retrieval configuration."""
         payload: dict[str, Any] = {"question": question}
@@ -514,13 +604,13 @@ class CogSolClient:
         name: str,
         node_id: int,
         doc_type: str = "general",
-        metadata: Optional[list[dict[str, Any]]] = None,
-        ingestion_config_id: Optional[int] = None,
+        metadata: list[dict[str, Any]] | None = None,
+        ingestion_config_id: int | None = None,
         pdf_parsing_mode: str = "both",
         chunking_mode: str = "langchain",
         max_size_block: int = 1500,
         chunk_overlap: int = 0,
-        separators: Optional[list[str]] = None,
+        separators: list[str] | None = None,
         ocr: bool = False,
         additional_prompt_instructions: str = "",
         assign_paths_as_metadata: bool = False,
@@ -589,12 +679,12 @@ class CogSolClient:
         file_paths: list[str | Path],
         node_id: int,
         doc_type: str = "general",
-        ingestion_config_id: Optional[int] = None,
+        ingestion_config_id: int | None = None,
         pdf_parsing_mode: str = "both",
         chunking_mode: str = "langchain",
         max_size_block: int = 1500,
         chunk_overlap: int = 0,
-        separators: Optional[list[str]] = None,
+        separators: list[str] | None = None,
         ocr: bool = False,
         additional_prompt_instructions: str = "",
         assign_paths_as_metadata: bool = False,

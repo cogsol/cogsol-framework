@@ -89,7 +89,9 @@ Update `.env` with your CogSol API credentials:
 COGSOL_ENV=development
 COGSOL_API_BASE=https://api.cogsol.ai/cognitive/
 COGSOL_CONTENT_API_BASE=https://api.cogsol.ai/content/
-COGSOL_API_TOKEN=your-api-token-here
+COGSOL_API_KEY=your-api-key-here
+COGSOL_AUTH_CLIENT_ID=your-client-id
+COGSOL_AUTH_SECRET=your-client-secret
 ```
 
 ### Step 3: Verify Project Setup
@@ -669,7 +671,9 @@ Verify your `.env` file has valid credentials:
 ```env
 COGSOL_API_BASE=https://api.cogsol.ai/cognitive/
 COGSOL_CONTENT_API_BASE=https://api.cogsol.ai/content/
-COGSOL_API_TOKEN=sk-your-valid-token
+COGSOL_API_KEY=sk-your-valid-api-key
+COGSOL_AUTH_CLIENT_ID=your-client-id
+COGSOL_AUTH_SECRET=your-client-secret
 ```
 
 ### Step 2: Apply Migrations
@@ -829,7 +833,8 @@ python -c "from agents.customersupport.agent import *"
 
 ### "API error: 401 Unauthorized"
 
-Verify your `COGSOL_API_TOKEN` is correct and not expired.
+Verify if `COGSOL_API_KEY`, `COGSOL_AUTH_CLIENT_ID`
+`COGSOL_AUTH_SECRET` are correct and not expired.
 
 ---
 

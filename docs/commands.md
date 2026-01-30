@@ -150,7 +150,10 @@ Contains commented examples of retrieval configurations.
 COGSOL_ENV=local
 COGSOL_API_BASE=http://localhost:8000
 COGSOL_CONTENT_API_BASE=http://localhost:8001
-# Optional: COGSOL_API_TOKEN=your-token
+# Optional: COGSOL_API_KEY=your-api-key
+# Optional: Azure AD B2C client credentials for JWT
+# COGSOL_AUTH_CLIENT_ID=your-client-id
+# COGSOL_AUTH_SECRET=your-client-secret
 ```
 
 #### Example Usage
@@ -483,7 +486,9 @@ python manage.py migrate [app]
 ```env
 COGSOL_API_BASE=https://api.cogsol.ai/cognitive/  # Required
 COGSOL_CONTENT_API_BASE=https://api.cogsol.ai/content/  # Required for data app
-COGSOL_API_TOKEN=your-token              # Optional, but recommended
+COGSOL_API_KEY=your-api-key              # Optional, but recommended
+COGSOL_AUTH_CLIENT_ID=your-client-id
+COGSOL_AUTH_SECRET=your-client-secret
 ```
 
 #### How It Works
@@ -730,7 +735,8 @@ python manage.py importagent <assistant_id> [app]
 
 ```env
 COGSOL_API_BASE=https://api.cogsol.ai/cognitive/  # Required
-COGSOL_API_TOKEN=your-token              # Optional
+COGSOL_API_KEY=your-api-key              # Optional
+
 COGSOL_CONTENT_API_BASE=https://api.cogsol.ai/content/  # Required if importing retrievals
 ```
 
@@ -812,7 +818,7 @@ python manage.py chat --agent <identifier> [app]
 
 ```env
 COGSOL_API_BASE=https://api.cogsol.ai/cognitive/  # Required
-COGSOL_API_TOKEN=your-token              # Optional
+COGSOL_API_KEY=your-api-key              # Optional
 ```
 
 #### Agent Resolution
@@ -891,7 +897,7 @@ COGSOL_API_BASE=https://api.cogsol.ai/cognitive/
 COGSOL_CONTENT_API_BASE=https://api.cogsol.ai/content/
 
 # Optional: API authentication token
-COGSOL_API_TOKEN=sk-your-api-token
+COGSOL_API_KEY=sk-your-api-key
 
 # Optional: Environment identifier
 COGSOL_ENV=production
@@ -916,7 +922,7 @@ def load_dotenv(dotenv_path: Path) -> None:
 |----------|--------------|-------------|
 | `COGSOL_API_BASE` | `migrate`, `chat`, `importagent` | Base URL for CogSol API |
 | `COGSOL_CONTENT_API_BASE` | `migrate`, `ingest`, `topics`, `importagent` | Base URL for the Content API (defaults to `COGSOL_API_BASE`) |
-| `COGSOL_API_TOKEN` | - | API authentication (via `x-api-key` header) |
+| `COGSOL_API_KEY` | - | API authentication (via `x-api-key` header) |
 | `COGSOL_ENV` | - | Environment name (informational) |
 
 ---
@@ -979,12 +985,13 @@ python -c "from agents.myagent.agent import *"
 
 #### "API error: 401 Unauthorized"
 
-Add or update your API token:
+Add or update your API Key:
 
 ```env
-COGSOL_API_TOKEN=your-valid-token
+COGSOL_API_KEY=your-valid-api-key
 ```
 
+If it doesn't work and you have the token auth configured, check if your credentials are valid.
 ### Debug Tips
 
 1. **Check state files**: Look at `agents/migrations/.state.json` for current mappings

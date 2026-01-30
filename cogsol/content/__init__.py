@@ -12,7 +12,7 @@ import os
 import sys
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from cogsol.core.api import CogSolAPIError, CogSolClient
 from cogsol.core.env import load_dotenv
@@ -89,7 +89,7 @@ class BaseTopic:
     delete_orphaned_metadata: bool = False
 
     class Meta:
-        description: Optional[str] = None
+        description: str | None = None
 
     def __repr__(self) -> str:
         return f"<Topic {getattr(self, 'name', self.__class__.__name__)}>"
@@ -121,8 +121,8 @@ class BaseMetadataConfig:
 
     # Value constraints
     possible_values: list[str] = []
-    default_value: Optional[str] = None
-    format: Optional[str] = None  # Required for DATE type (e.g., "YYYY-MM-DD")
+    default_value: str | None = None
+    format: str | None = None  # Required for DATE type (e.g., "YYYY-MM-DD")
 
     # Behavior flags
     filtrable: bool = False
@@ -176,7 +176,7 @@ class BaseIngestionConfig:
     """
 
     name: str
-    default_topic: Optional[type[BaseTopic]] = None
+    default_topic: type[BaseTopic] | None = None
 
     # PDF parsing options
     pdf_parsing_mode: PDFParsingMode = PDFParsingMode.BOTH
@@ -221,7 +221,7 @@ class BaseRetrieval:
     """
 
     name: str
-    topic: Optional[type[BaseTopic]] = None
+    topic: type[BaseTopic] | None = None
 
     # Result configuration
     num_refs: int = 10
@@ -229,9 +229,9 @@ class BaseRetrieval:
 
     # Reordering options
     reordering: bool = False
-    strategy_reordering: Optional[ReorderingStrategy] = None
+    strategy_reordering: ReorderingStrategy | None = None
     retrieval_window: int = 20
-    reordering_metadata: Optional[str] = None
+    reordering_metadata: str | None = None
     fixed_blocks_reordering: int = 3
 
     # Context blocks
@@ -251,15 +251,15 @@ class BaseRetrieval:
     def __init__(
         self,
         *,
-        retrieval_id: Optional[int] = None,
-        api_base: Optional[str] = None,
-        api_token: Optional[str] = None,
-        content_api_base: Optional[str] = None,
-        project_path: Optional[Path] = None,
+        retrieval_id: int | None = None,
+        api_base: str | None = None,
+        api_key: str | None = None,
+        content_api_base: str | None = None,
+        project_path: Path | None = None,
     ) -> None:
         self._retrieval_id = retrieval_id
         self._api_base = api_base
-        self._api_token = api_token
+        self._api_key = api_key
         self._content_api_base = content_api_base
         self._project_path = project_path
 
@@ -267,12 +267,12 @@ class BaseRetrieval:
         self,
         question: str,
         *,
-        doc_type: Optional[str | DocType] = None,
-        retrieval_id: Optional[int] = None,
-        api_base: Optional[str] = None,
-        api_token: Optional[str] = None,
-        content_api_base: Optional[str] = None,
-        project_path: Optional[Path] = None,
+        doc_type: str | DocType | None = None,
+        retrieval_id: int | None = None,
+        api_base: str | None = None,
+        api_key: str | None = None,
+        content_api_base: str | None = None,
+        project_path: Path | None = None,
         **params: Any,
     ) -> Any:
         """
@@ -292,7 +292,7 @@ class BaseRetrieval:
         base_url = api_base or self._api_base or os.environ.get("COGSOL_API_BASE") or content_base
         if not content_base:
             raise CogSolAPIError("COGSOL_CONTENT_API_BASE is required to run retrievals.")
-        token = api_token or self._api_token or os.environ.get("COGSOL_API_TOKEN")
+        token = api_key or self._api_key or os.environ.get("COGSOL_API_KEY")
 
         retrieval_id = retrieval_id or self._retrieval_id
         if retrieval_id is None:
@@ -312,7 +312,7 @@ class BaseRetrieval:
             payload[key] = self._normalize_payload_value(value)
 
         if base_url:
-            client = CogSolClient(base_url, token=token, content_base_url=content_base)
+            client = CogSolClient(base_url, api_key=token, content_base_url=content_base)
         else:
             raise CogSolAPIError("COGSOL_CONTENT_API_BASE is required to run retrievals.")
         return client.request(
@@ -322,7 +322,7 @@ class BaseRetrieval:
             use_content_api=True,
         )
 
-    def _resolve_project_path(self, project_path: Optional[Path]) -> Optional[Path]:
+    def _resolve_project_path(self, project_path: Path | None) -> Path | None:
         if project_path is not None:
             return project_path
         if self._project_path is not None:
@@ -336,7 +336,7 @@ class BaseRetrieval:
                     return parent.parent
         return None
 
-    def _resolve_retrieval_id(self, project_path: Optional[Path]) -> Optional[int]:
+    def _resolve_retrieval_id(self, project_path: Path | None) -> int | None:
         if project_path is None:
             project_path = Path.cwd()
         state_path = project_path / "data" / "migrations" / ".state.json"
