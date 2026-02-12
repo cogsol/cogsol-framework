@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- Optional Azure AD B2C client-credentials authentication in `CogSolClient` (`COGSOL_AUTH_CLIENT_ID`, `COGSOL_AUTH_SECRET`) with automatic bearer token acquisition.
+
+### Changed
+- API key configuration standardized on `COGSOL_API_KEY` (replacing `COGSOL_API_TOKEN`) across framework helpers and CLI commands.
+- `CogSolClient` now sends `Authorization: Bearer <token>` when configured and retries once on `401` after refreshing credentials.
+- Tool parameter sync now preserves `items` metadata for array-type parameters.
+- `startproject` template `.env.example` now includes API key and optional auth credential placeholders.
+- Runtime dependencies now include `msal` and `PyJWT`.
+
+### Fixed
+- Migration operation ordering for agents app dependencies to avoid first-run failures (agent entities are created before lessons/FAQs/fixed responses).
+- `startproject` scaffold now includes an active `ExampleTool` implementation to match default project flow.
+- Chat banner alignment/output rendering in terminal sessions.
+
+### Documentation
+- Environment variable and authentication docs updated to use `COGSOL_API_KEY` and optional Azure AD B2C credentials.
+- Removed outdated "no external dependencies" statements from README.
+
+---
+
 ## [0.2.0] - 2026-01-09
 
 ### Added
@@ -129,6 +152,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
+| Unreleased | - | Auth model updates, migration ordering fixes, packaging updates |
 | 0.2.0 | 2026-01-09 | Content API integration, data app, retrieval tools |
 | 0.1.0 | 2026-01-08 | Initial alpha release |
 
