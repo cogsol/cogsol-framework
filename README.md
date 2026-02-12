@@ -31,7 +31,6 @@ CogSol is designed to provide a Django-like development experience for building 
 - **Migration-Based Deployments**: Track changes via migrations (similar to Django)
 - **No Database Required**: Uses JSON files for state tracking
 - **API-Synchronized**: Push local definitions to remote CogSol APIs
-- **Lightweight**: Minimal dependencies, uses only Python standard library
 
 ---
 
@@ -63,7 +62,6 @@ pip install -e .
 ### Requirements
 
 - Python 3.9+
-- No external dependencies (uses only Python standard library)
 
 After installation, the `cogsol-admin` command becomes available globally.
 
