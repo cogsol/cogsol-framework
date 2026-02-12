@@ -4,7 +4,10 @@ import datetime
 from pathlib import Path
 from typing import Any
 
-from cogsol import __version__
+try:
+    from cogsol import __version__
+except ImportError:
+    __version__ = "unknown"
 from cogsol.core import migrations as migutils
 from cogsol.core.loader import collect_content_definitions, collect_definitions
 from cogsol.management.base import BaseCommand

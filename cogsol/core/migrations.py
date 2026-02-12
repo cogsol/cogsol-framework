@@ -166,7 +166,7 @@ def diff_states(
         )
     else:
         # Cognitive API entities (agents)
-        for entity in ["retrieval_tools", "tools", "lessons", "faqs", "fixed_responses", "agents"]:
+        for entity in ["retrieval_tools", "tools", "agents", "lessons", "faqs", "fixed_responses"]:
             operations.extend(
                 _diff_bucket(
                     entity,

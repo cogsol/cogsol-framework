@@ -8,7 +8,13 @@ from pathlib import Path
 from cogsol.agents import BaseAgent, genconfigs, optimizations
 from cogsol.core.loader import collect_definitions
 from cogsol.core.migrations import diff_states, empty_state
-from cogsol.db.migrations import AlterField, CreateRetrievalTool
+from cogsol.db.migrations import (
+    AlterField,
+    CreateAgent,
+    CreateLesson,
+    CreateRetrievalTool,
+    CreateTool,
+)
 
 
 class TestBaseAgent:
@@ -139,6 +145,106 @@ class ReturnPolicyFAQ(BaseFAQ):
                 if isinstance(op, AlterField) and op.entity == "agents" and op.name == "faqs"
             ]
             assert agent_faq_ops == []
+
+
+class TestOperationOrdering:
+    """Tests for correct dependency ordering of migration operations."""
+
+    def test_agent_created_before_lessons(self):
+        """CreateAgent should appear before CreateLesson in migration operations."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_path = Path(tmpdir)
+            agents_path = project_path / "agents"
+            agent_pkg = agents_path / "assistant"
+            agent_pkg.mkdir(parents=True)
+
+            (agents_path / "__init__.py").write_text("", encoding="utf-8")
+            (agents_path / "tools.py").write_text("", encoding="utf-8")
+            (agent_pkg / "__init__.py").write_text("", encoding="utf-8")
+            (agent_pkg / "agent.py").write_text(
+                """
+from cogsol.agents import BaseAgent
+
+
+class GreetingLesson:
+    name = "Greeting"
+    content = "Always greet the user."
+
+
+class AssistantAgent(BaseAgent):
+    system_prompt = "You are a helpful assistant."
+    lessons = [GreetingLesson()]
+
+    class Meta:
+        name = "AssistantAgent"
+        chat_name = "Assistant"
+""",
+                encoding="utf-8",
+            )
+
+            defs = collect_definitions(project_path, "agents")
+            ops = diff_states(empty_state(), defs, app="agents")
+
+            create_agent_indices = [i for i, op in enumerate(ops) if isinstance(op, CreateAgent)]
+            create_lesson_indices = [i for i, op in enumerate(ops) if isinstance(op, CreateLesson)]
+
+            assert create_agent_indices, "Expected at least one CreateAgent operation"
+            assert create_lesson_indices, "Expected at least one CreateLesson operation"
+            assert max(create_agent_indices) < min(
+                create_lesson_indices
+            ), "CreateAgent operations must come before CreateLesson operations"
+
+    def test_tools_created_before_agents(self):
+        """CreateTool should appear before CreateAgent in migration operations."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_path = Path(tmpdir)
+            agents_path = project_path / "agents"
+            agent_pkg = agents_path / "assistant"
+            agent_pkg.mkdir(parents=True)
+
+            (agents_path / "__init__.py").write_text("", encoding="utf-8")
+            (agents_path / "tools.py").write_text(
+                """
+from cogsol.tools import BaseTool
+
+
+class MyTool(BaseTool):
+    name = "my_tool"
+    description = "A test tool."
+    parameters = []
+
+    def run(self, **kwargs):
+        return "ok"
+""",
+                encoding="utf-8",
+            )
+            (agent_pkg / "__init__.py").write_text("", encoding="utf-8")
+            (agent_pkg / "agent.py").write_text(
+                """
+from cogsol.agents import BaseAgent
+
+
+class AssistantAgent(BaseAgent):
+    system_prompt = "You are a helpful assistant."
+
+    class Meta:
+        name = "AssistantAgent"
+        chat_name = "Assistant"
+""",
+                encoding="utf-8",
+            )
+
+            defs = collect_definitions(project_path, "agents")
+            ops = diff_states(empty_state(), defs, app="agents")
+
+            create_tool_indices = [i for i, op in enumerate(ops) if isinstance(op, CreateTool)]
+            create_agent_indices = [i for i, op in enumerate(ops) if isinstance(op, CreateAgent)]
+
+            assert create_tool_indices, "Expected at least one CreateTool operation"
+            assert create_agent_indices, "Expected at least one CreateAgent operation"
+            assert max(create_tool_indices) < min(
+                create_agent_indices
+            ), "CreateTool operations must come before CreateAgent operations"
 
 
 class TestRetrievalTools:
