@@ -73,9 +73,9 @@ class CogSolClient:
         api_key: str | None = None,
         content_base_url: str | None = None,
     ) -> None:
-        self.base_url = base_url or os.environ.get("COGSOL_API_BASE") or ""
+        self.base_url = base_url or os.environ.get("COGSOL_API_BASE", "https://apis-imp.cogsol.ai/cognitive")
         self.api_key = api_key or os.environ.get("COGSOL_API_KEY")
-        self.content_base_url = content_base_url or os.environ.get("COGSOL_CONTENT_API_BASE")
+        self.content_base_url = content_base_url or os.environ.get("COGSOL_CONTENT_API_BASE", "https://apis-imp.cogsol.ai/content")
         self.bearer_token = None
         self.bearer_token_expires_at = None
 

@@ -51,7 +51,7 @@ class CogSolClient:
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `base_url` | `str` | Yes | Base URL for the Cognitive API (e.g., `https://api.cogsol.ai/cognitive/`) |
+| `base_url` | `str` | Yes | Base URL for the Cognitive API (e.g., `https://apis-imp.cogsol.ai/cognitive`) |
 | `token` | `str` | No | API authentication token |
 | `content_base_url` | `str` | No | Base URL for Content API (defaults to `base_url` if not set) |
 
@@ -61,13 +61,13 @@ class CogSolClient:
 from cogsol.core.api import CogSolClient
 
 # Without authentication
-client = CogSolClient(base_url="https://api.cogsol.ai/cognitive/")
+client = CogSolClient(base_url="https://apis-imp.cogsol.ai/cognitive")
 
 # With authentication and separate Content API
 client = CogSolClient(
-    base_url="https://api.cogsol.ai/cognitive/",
+    base_url="https://apis-imp.cogsol.ai/cognitive",
     token="sk-your-api-key",
-    content_base_url="https://api.cogsol.ai/content/"
+    content_base_url="https://apis-imp.cogsol.ai/content"
 )
 ```
 
@@ -595,7 +595,7 @@ class CogSolAPIError(RuntimeError):
 ```python
 from cogsol.core.api import CogSolClient, CogSolAPIError
 
-client = CogSolClient(base_url="https://api.cogsol.ai/cognitive/", token="...")
+client = CogSolClient(base_url="https://apis-imp.cogsol.ai/cognitive", token="...")
 
 try:
     assistant = client.get_assistant(9999)
@@ -939,7 +939,7 @@ from cogsol.core.api import CogSolClient
 
 # Initialize client
 client = CogSolClient(
-    base_url="https://api.cogsol.ai/cognitive/",
+    base_url="https://apis-imp.cogsol.ai/cognitive",
     token="sk-your-token"
 )
 

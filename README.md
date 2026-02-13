@@ -123,10 +123,9 @@ agents/salesagent/
 Copy `.env.example` to `.env` and set your API credentials:
 
 ```env
-COGSOL_ENV=local
-COGSOL_API_BASE=https://api.cogsol.ai/cognitive/
-COGSOL_CONTENT_API_BASE=https://api.cogsol.ai/content/
-COGSOL_
+COGSOL_ENV=development
+COGSOL_API_BASE=https://apis-imp.cogsol.ai/cognitive
+COGSOL_CONTENT_API_BASE=https://apis-imp.cogsol.ai/content
 COGSOL_API_KEY=your-api-key
 # Optional: Azure AD B2C client credentials for JWT
 # If not provided, the Auth will be skipped

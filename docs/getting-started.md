@@ -87,8 +87,8 @@ Update `.env` with your CogSol API credentials:
 
 ```env
 COGSOL_ENV=development
-COGSOL_API_BASE=https://api.cogsol.ai/cognitive/
-COGSOL_CONTENT_API_BASE=https://api.cogsol.ai/content/
+COGSOL_API_BASE=https://apis-imp.cogsol.ai/cognitive
+COGSOL_CONTENT_API_BASE=https://apis-imp.cogsol.ai/content
 COGSOL_API_KEY=your-api-key-here
 COGSOL_AUTH_CLIENT_ID=your-client-id
 COGSOL_AUTH_SECRET=your-client-secret
@@ -669,8 +669,8 @@ class Migration(migrations.Migration):
 Verify your `.env` file has valid credentials:
 
 ```env
-COGSOL_API_BASE=https://api.cogsol.ai/cognitive/
-COGSOL_CONTENT_API_BASE=https://api.cogsol.ai/content/
+COGSOL_API_BASE=https://apis-imp.cogsol.ai/cognitive
+COGSOL_CONTENT_API_BASE=https://apis-imp.cogsol.ai/content
 COGSOL_API_KEY=sk-your-valid-api-key
 COGSOL_AUTH_CLIENT_ID=your-client-id
 COGSOL_AUTH_SECRET=your-client-secret

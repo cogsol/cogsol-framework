@@ -20,8 +20,8 @@ def get_client(project_path: Path) -> CogSolClient:
     try:
         import settings
 
-        api_base = getattr(settings, "COGSOL_API_BASE", None)
-        content_base = getattr(settings, "COGSOL_CONTENT_API_BASE", None)
+        api_base = getattr(settings, "COGSOL_API_BASE", "https://apis-imp.cogsol.ai/cognitive")
+        content_base = getattr(settings, "COGSOL_CONTENT_API_BASE", "https://apis-imp.cogsol.ai/content")
     except ImportError:
         api_base = None
         content_base = None
@@ -30,8 +30,8 @@ def get_client(project_path: Path) -> CogSolClient:
 
     import os
 
-    api_base = api_base or os.environ.get("COGSOL_API_BASE", "http://localhost:8000")
-    content_base = content_base or os.environ.get("COGSOL_CONTENT_API_BASE", api_base)
+    api_base = api_base or os.environ.get("COGSOL_API_BASE", "https://apis-imp.cogsol.ai/cognitive")
+    content_base = content_base or os.environ.get("COGSOL_CONTENT_API_BASE", "https://apis-imp.cogsol.ai/content")
     api_key = os.environ.get("COGSOL_API_KEY")
 
     return CogSolClient(base_url=api_base, api_key=api_key, content_base_url=content_base)

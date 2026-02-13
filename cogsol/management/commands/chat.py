@@ -316,7 +316,7 @@ class Command(BaseCommand):
         app = str(options.get("app") or "agents")
         load_dotenv(project_path / ".env")
 
-        api_base = os.environ.get("COGSOL_API_BASE")
+        api_base = os.environ.get("COGSOL_API_BASE", "https://apis-imp.cogsol.ai/cognitive")
         api_key = os.environ.get("COGSOL_API_KEY")
         if not api_base:
             print_error("COGSOL_API_BASE is required in .env to chat with CogSol.")

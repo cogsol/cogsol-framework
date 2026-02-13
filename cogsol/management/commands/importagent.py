@@ -289,9 +289,9 @@ class Command(BaseCommand):
 
         import os
 
-        api_base = os.environ.get("COGSOL_API_BASE")
+        api_base = os.environ.get("COGSOL_API_BASE", "https://apis-imp.cogsol.ai/cognitive")
         api_key = os.environ.get("COGSOL_API_KEY")
-        content_base = os.environ.get("COGSOL_CONTENT_API_BASE") or api_base
+        content_base = os.environ.get("COGSOL_CONTENT_API_BASE", "https://apis-imp.cogsol.ai/content") or api_base
         if not api_base:
             print("COGSOL_API_BASE is required in .env to import.")
             return 1

@@ -194,7 +194,7 @@ class Command(BaseCommand):
             "data/retrievals.py": DATA_RETRIEVALS_PY,
             "data/migrations/__init__.py": "",
             "README.md": README.format(project_name=name),
-            ".env.example": "COGSOL_ENV=local\nCOGSOL_API_BASE=http://localhost:8000\nCOGSOL_CONTENT_API_BASE=http://localhost:8001\n# Optional: COGSOL_API_KEY=your-api-key\n# Optional: Azure AD B2C client credentials for JWT\n# If not provided, the Auth will be skipped\n# COGSOL_AUTH_CLIENT_ID=you-client-id\n# COGSOL_AUTH_SECRET=your-secret\n",
+            ".env.example": "COGSOL_ENV=development\nCOGSOL_API_BASE=https://apis-imp.cogsol.ai/cognitive\nCOGSOL_CONTENT_API_BASE=https://apis-imp.cogsol.ai/content\n#COGSOL_API_KEY=your-api-key\n# Optional: Azure AD B2C client credentials for JWT\n# If not provided, the Auth will be skipped\n# COGSOL_AUTH_CLIENT_ID=you-client-id\n# COGSOL_AUTH_SECRET=your-secret\n",
         }
 
         for relative_path, content in files.items():

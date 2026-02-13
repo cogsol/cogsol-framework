@@ -9,6 +9,7 @@ requires-python = ">=3.9"
 dependencies = [
     "msal>=1.27",
     "PyJWT>=2.8",
+    "typing-extensions>=4.0",
 ]
 keywords = ["ai", "agents", "llm", "framework", "assistant", "chatbot"]
 classifiers = [

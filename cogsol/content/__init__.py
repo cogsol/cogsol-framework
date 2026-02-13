@@ -287,7 +287,7 @@ class BaseRetrieval:
         load_dotenv(project_path / ".env")
 
         content_base = (
-            content_api_base or self._content_api_base or os.environ.get("COGSOL_CONTENT_API_BASE")
+            content_api_base or self._content_api_base or os.environ.get("COGSOL_CONTENT_API_BASE", "https://apis-imp.cogsol.ai/content")
         )
         base_url = api_base or self._api_base or os.environ.get("COGSOL_API_BASE") or content_base
         if not content_base:
