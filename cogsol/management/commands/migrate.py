@@ -62,7 +62,9 @@ class Command(BaseCommand):
         load_dotenv(project_path / ".env")
         api_base = os.environ.get("COGSOL_API_BASE", "https://apis-imp.cogsol.ai/cognitive")
         api_key = self._env("COGSOL_API_KEY", required=False)
-        content_base = os.environ.get("COGSOL_CONTENT_API_BASE", "https://apis-imp.cogsol.ai/content")
+        content_base = os.environ.get(
+            "COGSOL_CONTENT_API_BASE", "https://apis-imp.cogsol.ai/content"
+        )
         if not api_base:
             print("COGSOL_API_BASE is required in .env to run migrations against CogSol APIs.")
             return 1
