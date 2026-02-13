@@ -98,7 +98,11 @@ class BaseAgent:
             project_path = Path.cwd()
         load_dotenv(project_path / ".env")
 
-        base_url = api_base or self._api_base or os.environ.get("COGSOL_API_BASE", "https://apis-imp.cogsol.ai/cognitive")
+        base_url = (
+            api_base
+            or self._api_base
+            or os.environ.get("COGSOL_API_BASE", "https://apis-imp.cogsol.ai/cognitive")
+        )
         if not base_url:
             raise CogSolAPIError("COGSOL_API_BASE is required to run agents.")
         token = api_key or self._api_key or os.environ.get("COGSOL_API_KEY")
