@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import os
 import ast
 import copy
 import inspect
@@ -59,9 +60,9 @@ class Command(BaseCommand):
         apps = [str(app)] if app else ["agents", "data"]
 
         load_dotenv(project_path / ".env")
-        api_base = self._env("COGSOL_API_BASE", required=False)
+        api_base = os.environ.get("COGSOL_API_BASE", "https://apis-imp.cogsol.ai/cognitive")
         api_key = self._env("COGSOL_API_KEY", required=False)
-        content_base = self._env("COGSOL_CONTENT_API_BASE", required=False) or api_base
+        content_base = os.environ.get("COGSOL_CONTENT_API_BASE", "https://apis-imp.cogsol.ai/content")
         if not api_base:
             print("COGSOL_API_BASE is required in .env to run migrations against CogSol APIs.")
             return 1
@@ -158,8 +159,6 @@ class Command(BaseCommand):
 
     # ------------------------------------------------------------------ helpers
     def _env(self, key: str, required: bool = True) -> str | None:
-        import os
-
         value = os.environ.get(key)
         if required and not value:
             return None
