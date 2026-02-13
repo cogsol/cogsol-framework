@@ -59,11 +59,9 @@ class Command(BaseCommand):
         apps = [str(app)] if app else ["agents", "data"]
 
         load_dotenv(project_path / ".env")
-        api_base = self._env("COGSOL_API_BASE", "https://apis-imp.cogsol.ai/cognitive")
+        api_base = self._env("COGSOL_API_BASE", required=False)
         api_key = self._env("COGSOL_API_KEY", required=False)
-        content_base = (
-            self._env("COGSOL_CONTENT_API_BASE", "https://apis-imp.cogsol.ai/content") or api_base
-        )
+        content_base = self._env("COGSOL_CONTENT_API_BASE", required=False) or api_base
         if not api_base:
             print("COGSOL_API_BASE is required in .env to run migrations against CogSol APIs.")
             return 1
