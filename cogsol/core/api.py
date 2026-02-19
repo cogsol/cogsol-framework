@@ -13,6 +13,11 @@ from urllib import error, request
 import msal
 from jwt import decode
 
+from cogsol.core.constants import (
+    get_cognitive_api_base_url,
+    get_content_api_base_url,
+)
+
 
 class CogSolAPIError(RuntimeError):
     pass
@@ -73,13 +78,9 @@ class CogSolClient:
         api_key: str | None = None,
         content_base_url: str | None = None,
     ) -> None:
-        self.base_url = base_url or os.environ.get(
-            "COGSOL_API_BASE", "https://apis-imp.cogsol.ai/cognitive"
-        )
+        self.base_url = base_url or get_cognitive_api_base_url()
         self.api_key = api_key or os.environ.get("COGSOL_API_KEY")
-        self.content_base_url = content_base_url or os.environ.get(
-            "COGSOL_CONTENT_API_BASE", "https://apis-imp.cogsol.ai/content"
-        )
+        self.content_base_url = content_base_url or get_content_api_base_url()
         self.bearer_token = None
         self.bearer_token_expires_at = None
 

@@ -14,6 +14,10 @@ from cogsol.agents import genconfigs
 from cogsol.content import BaseRetrieval
 from cogsol.core import migrations as migutils
 from cogsol.core.api import CogSolAPIError, CogSolClient
+from cogsol.core.constants import (
+    get_cognitive_api_base_url,
+    get_content_api_base_url,
+)
 from cogsol.core.env import load_dotenv
 from cogsol.core.loader import _extract_tool_params, collect_classes, collect_content_classes
 from cogsol.db import migrations
@@ -60,11 +64,9 @@ class Command(BaseCommand):
         apps = [str(app)] if app else ["agents", "data"]
 
         load_dotenv(project_path / ".env")
-        api_base = os.environ.get("COGSOL_API_BASE", "https://apis-imp.cogsol.ai/cognitive")
+        api_base = get_cognitive_api_base_url()
         api_key = self._env("COGSOL_API_KEY", required=False)
-        content_base = os.environ.get(
-            "COGSOL_CONTENT_API_BASE", "https://apis-imp.cogsol.ai/content"
-        )
+        content_base = get_content_api_base_url()
         if not api_base:
             print("COGSOL_API_BASE is required in .env to run migrations against CogSol APIs.")
             return 1

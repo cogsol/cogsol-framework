@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import Any, cast
 
 from cogsol.core.api import CogSolAPIError, CogSolClient
+from cogsol.core.constants import (
+    get_cognitive_api_base_url,
+    get_content_api_base_url,
+)
 from cogsol.core.env import load_dotenv
 from cogsol.core.loader import (
     _extract_tool_params,
@@ -289,12 +293,9 @@ class Command(BaseCommand):
 
         import os
 
-        api_base = os.environ.get("COGSOL_API_BASE", "https://apis-imp.cogsol.ai/cognitive")
+        api_base = get_cognitive_api_base_url()
         api_key = os.environ.get("COGSOL_API_KEY")
-        content_base = (
-            os.environ.get("COGSOL_CONTENT_API_BASE", "https://apis-imp.cogsol.ai/content")
-            or api_base
-        )
+        content_base = get_content_api_base_url() or api_base
         if not api_base:
             print("COGSOL_API_BASE is required in .env to import.")
             return 1

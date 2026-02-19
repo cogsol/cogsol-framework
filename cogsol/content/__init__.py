@@ -15,6 +15,10 @@ from pathlib import Path
 from typing import Any
 
 from cogsol.core.api import CogSolAPIError, CogSolClient
+from cogsol.core.constants import (
+    get_cognitive_api_base_url,
+    get_content_api_base_url,
+)
 from cogsol.core.env import load_dotenv
 
 
@@ -286,12 +290,8 @@ class BaseRetrieval:
             project_path = Path.cwd()
         load_dotenv(project_path / ".env")
 
-        content_base = (
-            content_api_base
-            or self._content_api_base
-            or os.environ.get("COGSOL_CONTENT_API_BASE", "https://apis-imp.cogsol.ai/content")
-        )
-        base_url = api_base or self._api_base or os.environ.get("COGSOL_API_BASE") or content_base
+        content_base = content_api_base or self._content_api_base or get_content_api_base_url()
+        base_url = api_base or self._api_base or get_cognitive_api_base_url() or content_base
         if not content_base:
             raise CogSolAPIError("COGSOL_CONTENT_API_BASE is required to run retrievals.")
         token = api_key or self._api_key or os.environ.get("COGSOL_API_KEY")
