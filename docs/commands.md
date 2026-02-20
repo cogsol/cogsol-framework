@@ -146,15 +146,7 @@ Contains commented examples of retrieval configurations.
 
 ##### `.env.example`
 
-```env
-COGSOL_ENV=local
-COGSOL_API_BASE=http://localhost:8000
-COGSOL_CONTENT_API_BASE=http://localhost:8001
-# Optional: COGSOL_API_KEY=your-api-key
-# Optional: Azure AD B2C client credentials for JWT
-# COGSOL_AUTH_CLIENT_ID=your-client-id
-# COGSOL_AUTH_SECRET=your-client-secret
-```
+Stores configuration variables for CogSol credentials.
 
 #### Example Usage
 
@@ -484,9 +476,7 @@ python manage.py migrate [app]
 #### Required Environment Variables
 
 ```env
-COGSOL_API_BASE=https://api.cogsol.ai/cognitive/  # Required
-COGSOL_CONTENT_API_BASE=https://api.cogsol.ai/content/  # Required for data app
-COGSOL_API_KEY=your-api-key              # Optional, but recommended
+COGSOL_API_KEY=your-api-key         
 COGSOL_AUTH_CLIENT_ID=your-client-id
 COGSOL_AUTH_SECRET=your-client-secret
 ```
@@ -734,10 +724,10 @@ python manage.py importagent <assistant_id> [app]
 #### Required Environment Variables
 
 ```env
-COGSOL_API_BASE=https://api.cogsol.ai/cognitive/  # Required
+COGSOL_API_BASE=https://apis-imp.cogsol.ai/cognitive  # Required
 COGSOL_API_KEY=your-api-key              # Optional
 
-COGSOL_CONTENT_API_BASE=https://api.cogsol.ai/content/  # Required if importing retrievals
+COGSOL_CONTENT_API_BASE=https://apis-imp.cogsol.ai/content  # Required if importing retrievals
 ```
 
 #### What Gets Imported
@@ -817,7 +807,7 @@ python manage.py chat --agent <identifier> [app]
 #### Required Environment Variables
 
 ```env
-COGSOL_API_BASE=https://api.cogsol.ai/cognitive/  # Required
+COGSOL_API_BASE=https://apis-imp.cogsol.ai/cognitive  # Required
 COGSOL_API_KEY=your-api-key              # Optional
 ```
 
@@ -885,48 +875,6 @@ python manage.py chat --agent Support assistants
 
 ---
 
-## Environment Configuration
-
-### `.env` File
-
-Create a `.env` file in your project root:
-
-```env
-# Required for migrate and chat commands
-COGSOL_API_BASE=https://api.cogsol.ai/cognitive/
-COGSOL_CONTENT_API_BASE=https://api.cogsol.ai/content/
-
-# Optional: API authentication token
-COGSOL_API_KEY=sk-your-api-key
-
-# Optional: Environment identifier
-COGSOL_ENV=production
-```
-
-### Environment Loading
-
-The framework loads `.env` automatically using a minimal built-in loader (no external dependencies):
-
-```python
-# cogsol/core/env.py
-def load_dotenv(dotenv_path: Path) -> None:
-    """
-    Minimal .env loader.
-    Supports KEY=VALUE lines, ignores blanks and comments.
-    """
-```
-
-### Variable Reference
-
-| Variable | Required For | Description |
-|----------|--------------|-------------|
-| `COGSOL_API_BASE` | `migrate`, `chat`, `importagent` | Base URL for CogSol API |
-| `COGSOL_CONTENT_API_BASE` | `migrate`, `ingest`, `topics`, `importagent` | Base URL for the Content API (defaults to `COGSOL_API_BASE`) |
-| `COGSOL_API_KEY` | - | API authentication (via `x-api-key` header) |
-| `COGSOL_ENV` | - | Environment name (informational) |
-
----
-
 ## Exit Codes
 
 All commands return standard exit codes:
@@ -966,7 +914,7 @@ python manage.py makemigrations
 Create or update your `.env` file:
 
 ```bash
-echo "COGSOL_API_BASE=https://api.cogsol.ai/cognitive/" >> .env
+echo "COGSOL_API_BASE=https://apis-imp.cogsol.ai/cognitive" >> .env
 ```
 
 #### "Could not resolve agent"

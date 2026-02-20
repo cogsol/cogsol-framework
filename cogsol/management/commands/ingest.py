@@ -12,6 +12,10 @@ from typing import Any
 
 from cogsol.content import BaseIngestionConfig, DocType
 from cogsol.core.api import CogSolClient
+from cogsol.core.constants import (
+    get_cognitive_api_base_url,
+    get_content_api_base_url,
+)
 from cogsol.core.env import load_dotenv
 from cogsol.management.base import BaseCommand
 
@@ -36,26 +40,11 @@ SUPPORTED_EXTENSIONS = {
 
 def get_client(project_path: Path) -> CogSolClient:
     """Get an API client configured for the project."""
-    import sys
-
     load_dotenv(project_path / ".env")
-
-    sys.path.insert(0, str(project_path))
-    try:
-        import settings
-
-        api_base = getattr(settings, "COGSOL_API_BASE", None)
-        content_base = getattr(settings, "COGSOL_CONTENT_API_BASE", None)
-    except ImportError:
-        api_base = None
-        content_base = None
-    finally:
-        sys.path.pop(0)
-
     import os
 
-    api_base = api_base or os.environ.get("COGSOL_API_BASE", "http://localhost:8000")
-    content_base = content_base or os.environ.get("COGSOL_CONTENT_API_BASE", api_base)
+    api_base = get_cognitive_api_base_url()
+    content_base = get_content_api_base_url()
     token = os.environ.get("COGSOL_API_KEY")
 
     return CogSolClient(base_url=api_base, api_key=token, content_base_url=content_base)

@@ -121,10 +121,7 @@ agents/salesagent/
 Copy `.env.example` to `.env` and set your API credentials:
 
 ```env
-COGSOL_ENV=local
-COGSOL_API_BASE=https://api.cogsol.ai/cognitive/
-COGSOL_CONTENT_API_BASE=https://api.cogsol.ai/content/
-COGSOL_
+COGSOL_ENV=development
 COGSOL_API_KEY=your-api-key
 # Optional: Azure AD B2C client credentials for JWT
 # If not provided, the Auth will be skipped
@@ -668,10 +665,8 @@ from cogsol.content import BaseRetrieval, ReorderingStrategy
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `COGSOL_API_BASE` | Yes | Base URL for the CogSol Cognitive API |
-| `COGSOL_CONTENT_API_BASE` | No | Base URL for the CogSol Content API (defaults to `COGSOL_API_BASE`) |
 | `COGSOL_API_KEY` | Yes | API Key authentication |
-| `COGSOL_ENV` | No | Environment name (e.g., `local`, `production`) |
+| `COGSOL_ENV` | No | Environment name (e.g., `local`, `development`, `production`) |
 | `COGSOL_AUTH_CLIENT_ID` | No | Client Id provided for adminitrators |
 | `COGSOL_AUTH_SECRET` | No | Auth Secret provided for adminitrators |
 

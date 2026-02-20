@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from cogsol.core.api import CogSolAPIError, CogSolClient
+from cogsol.core.constants import get_cognitive_api_base_url
 from cogsol.core.env import load_dotenv
 
 
@@ -98,7 +99,7 @@ class BaseAgent:
             project_path = Path.cwd()
         load_dotenv(project_path / ".env")
 
-        base_url = api_base or self._api_base or os.environ.get("COGSOL_API_BASE")
+        base_url = api_base or self._api_base or get_cognitive_api_base_url()
         if not base_url:
             raise CogSolAPIError("COGSOL_API_BASE is required to run agents.")
         token = api_key or self._api_key or os.environ.get("COGSOL_API_KEY")
