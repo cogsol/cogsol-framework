@@ -465,7 +465,8 @@ def collect_classes(project_path: Path, app_name: str = "agents") -> dict[str, d
                     or obj.__module__.startswith(retrieval_prefix)
                 )
             ):
-                classes["retrieval_tools"][obj.__name__] = obj
+                key = getattr(obj, "name", None) or obj.__name__
+                classes["retrieval_tools"][key] = obj
     except ModuleNotFoundError as exc:
         if not _ignore_missing_module(exc, f"{app_name}.searches"):
             _raise_import_error("retrieval tools module", f"{app_name}.searches", exc)

@@ -280,3 +280,61 @@ class ProductDocsSearch(BaseRetrievalTool):
             ops = diff_states(empty_state(), defs, app="agents")
             create_ops = [op for op in ops if isinstance(op, CreateRetrievalTool)]
             assert len(create_ops) == 1
+
+
+class TestCollectClassesRetrievalToolKey:
+    """Tests for consistent keying of retrieval tools in collect_classes."""
+
+    def test_explicit_name_used_as_key(self):
+        """collect_classes should use the explicit name attribute as the key."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_path = Path(tmpdir)
+            agents_path = project_path / "agents"
+            agents_path.mkdir(parents=True)
+
+            (agents_path / "__init__.py").write_text("", encoding="utf-8")
+            (agents_path / "tools.py").write_text("", encoding="utf-8")
+            (agents_path / "searches.py").write_text(
+                """
+from cogsol.tools import BaseRetrievalTool
+
+class ProductDocsSearch(BaseRetrievalTool):
+    name = "product_docs_search"
+    description = "Search product docs."
+    retrieval = "product_docs_search"
+    parameters = []
+""",
+                encoding="utf-8",
+            )
+
+            from cogsol.core.loader import collect_classes
+
+            classes = collect_classes(project_path, "agents")
+            assert "product_docs_search" in classes["retrieval_tools"]
+            assert "ProductDocsSearch" not in classes["retrieval_tools"]
+
+    def test_fallback_to_class_name(self):
+        """collect_classes should fall back to __name__ when no name attribute."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_path = Path(tmpdir)
+            agents_path = project_path / "agents"
+            agents_path.mkdir(parents=True)
+
+            (agents_path / "__init__.py").write_text("", encoding="utf-8")
+            (agents_path / "tools.py").write_text("", encoding="utf-8")
+            (agents_path / "searches.py").write_text(
+                """
+from cogsol.tools import BaseRetrievalTool
+
+class SimpleSearch(BaseRetrievalTool):
+    description = "Simple search."
+    retrieval = "simple_search"
+    parameters = []
+""",
+                encoding="utf-8",
+            )
+
+            from cogsol.core.loader import collect_classes
+
+            classes = collect_classes(project_path, "agents")
+            assert "SimpleSearch" in classes["retrieval_tools"]
