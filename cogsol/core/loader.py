@@ -77,6 +77,8 @@ def serialize_value(value: Any) -> Any:
             return getattr(value, "name", None) or value.__name__
         if issubclass(value, BaseIngestionConfig):
             return getattr(value, "name", None) or value.__name__
+        if issubclass(value, BaseMetadataConfig):
+            return getattr(value, "name", None) or value.__name__
         if issubclass(value, BaseRetrievalTool):
             return getattr(value, "name", None) or value.__name__
     if is_dataclass(value) and not isinstance(value, type):
@@ -465,7 +467,8 @@ def collect_classes(project_path: Path, app_name: str = "agents") -> dict[str, d
                     or obj.__module__.startswith(retrieval_prefix)
                 )
             ):
-                classes["retrieval_tools"][obj.__name__] = obj
+                key = getattr(obj, "name", None) or obj.__name__
+                classes["retrieval_tools"][key] = obj
     except ModuleNotFoundError as exc:
         if not _ignore_missing_module(exc, f"{app_name}.searches"):
             _raise_import_error("retrieval tools module", f"{app_name}.searches", exc)
