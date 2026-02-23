@@ -675,6 +675,13 @@ class Command(BaseCommand):
         definition: dict[str, Any],
         cls: type[BaseTool] | None,
     ) -> dict[str, Any]:
+        fields = definition.get("fields", {}) if definition else {}
+
+        def _get(attr: str, default=None):
+            if cls is not None and hasattr(cls, attr):
+                return getattr(cls, attr)
+            return fields.get(attr, default)
+
         params = []
         if cls is not None:
             param_def = _extract_tool_params(cls)
@@ -707,9 +714,9 @@ class Command(BaseCommand):
             "name": tool_name,
             "description": description,
             "parameters": params,
-            "show_tool_message": True,
-            "show_assistant_message": False,
-            "edit_available": False,
+            "show_tool_message": bool(_get("show_tool_message", False)),
+            "show_assistant_message": bool(_get("show_assistant_message", False)),
+            "edit_available": bool(_get("edit_available", True)),
             "code": code,
         }
 
