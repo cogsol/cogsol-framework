@@ -3,41 +3,48 @@ Tests for tool code transformation during migrations.
 """
 
 from cogsol.management.commands.migrate import Command
-from cogsol.tools import BaseTool
 
 
-class TestToolScriptFromClass:
-    def test_includes_helper_methods_and_rewrites_self_calls(self) -> None:
-        class HelperTool(BaseTool):
-            def helper(self, text: str, count: int = 1) -> str:
-                return f"{text}-{count}"
+class TestToolScriptFromState:
+    def test_builds_script_from_migrated_code(self) -> None:
+        fields = {
+            "__code__": (
+                "def helper(self, text: str) -> str:\n"
+                "    return text.upper()\n\n"
+                "def run(self, text: str = '') -> str:\n"
+                "    return self.helper(text)\n"
+            ),
+            "parameters": {
+                "text": {"description": "Text", "type": "string", "required": True},
+            },
+        }
 
-            def run(self, text: str, count: int = 1) -> str:
-                return self.helper(text, count)
+        script = Command()._tool_script_from_state(fields)
 
-        script = Command()._tool_script_from_class(HelperTool)
-
-        assert "def helper(text: str, count: int=1)" in script
-        assert "response = helper(text, count)" in script
-        assert "self.helper" not in script
+        assert "def helper(text: str)" in script
         assert "text = params.get('text')" in script
-        assert "count = params.get('count')" in script
+        assert "response = helper(text)" in script
+        assert "self.helper" not in script
 
-    def test_handles_multiple_helpers(self) -> None:
-        class MultiHelperTool(BaseTool):
-            def first(self, value: int) -> int:
-                return value + 1
+    def test_tool_payload_uses_state_only(self) -> None:
+        definition = {
+            "fields": {
+                "name": "Echo",
+                "description": "Echo text.",
+                "parameters": {
+                    "text": {"description": "Text", "type": "string", "required": True},
+                },
+                "__code__": ("def run(self, text: str = '') -> str:\n" "    return text\n"),
+                "show_tool_message": True,
+                "show_assistant_message": False,
+                "edit_available": True,
+            }
+        }
 
-            def second(self, value: int) -> int:
-                return self.first(value) * 2
+        payload = Command()._tool_payload("Echo", definition)
 
-            def run(self, value: int) -> int:
-                return self.second(value)
-
-        script = Command()._tool_script_from_class(MultiHelperTool)
-
-        assert "def first(value: int)" in script
-        assert "def second(value: int)" in script
-        assert "response = second(value)" in script
-        assert "self.first" not in script
-        assert "self.second" not in script
+        assert payload["name"] == "Echo"
+        assert payload["description"] == "Echo text."
+        assert payload["show_tool_message"] is True
+        assert "text = params.get('text')" in payload["code"]
+        assert "response = text" in payload["code"]
