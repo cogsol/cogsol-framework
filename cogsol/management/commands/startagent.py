@@ -61,7 +61,27 @@ from .agent import {class_name}
 
 
 def slugify(name: str) -> str:
+    """Normalize to a filesystem-safe slug."""
     return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+
+
+def to_class_name(slug: str) -> str:
+    """
+    Convert a slug (lowercase/underscored) into a PascalCase class name.
+    """
+    parts = [part for part in slug.split("_") if part]
+    camel = "".join(part.capitalize() for part in parts)
+    if not camel:
+        return ""
+    if camel.lower().endswith("agent"):
+        camel = camel[: -len("agent")] + "Agent"
+    else:
+        camel += "Agent"
+    return camel
+
+
+def is_valid_slug(slug: str) -> bool:
+    return bool(re.match(r"^[a-z_][a-z0-9_]*$", slug))
 
 
 class Command(BaseCommand):
@@ -74,10 +94,21 @@ class Command(BaseCommand):
 
     def handle(self, project_path: Path | None, **options: Any) -> int:
         assert project_path is not None, "project_path is required"
-        name = str(options.get("name") or "")
+        name = str(options.get("name") or "").strip()
         app = str(options.get("app") or "agents")
+
         slug = slugify(name)
-        class_name = name if name.endswith("Agent") else f"{name}Agent"
+        if not slug or not is_valid_slug(slug):
+            print(
+                "Invalid agent name. Use letters, numbers, or underscores; "
+                "start with a letter or underscore."
+            )
+            return 1
+
+        class_name = to_class_name(slug)
+        if not class_name or not class_name.isidentifier():
+            print(f"Could not derive a valid Python class name from '{name}'.")
+            return 1
 
         base_dir = project_path / app / slug
         prompts_dir = base_dir / "prompts"
