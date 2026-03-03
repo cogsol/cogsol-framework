@@ -23,7 +23,7 @@ class {class_name}(BaseAgent):
 
     class Meta:
         name = "{class_name}"
-        chat_name = "{class_name} Chat"
+        chat_name = "{class_name}"
 """
 
 FAQS_TEMPLATE = """\
