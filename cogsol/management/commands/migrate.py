@@ -601,7 +601,7 @@ class Command(BaseCommand):
                         lesson_filter.setdefault(agent, set()).add(name)
                 sync_related = bool(faq_filter or fixed_filter or lesson_filter)
             if not sync_related:
-                return new_remote
+                return new_remote, created
 
             agents_filter = set(faq_filter) | set(fixed_filter) | set(lesson_filter)
 
