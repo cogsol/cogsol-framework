@@ -488,17 +488,9 @@ class Command(BaseCommand):
             # Rollback creations in reverse order
             for kind, parent_id, obj_id in reversed(created):
                 try:
-                    if kind == "topic":
-                        client.delete_node(obj_id)
-                    elif kind == "metadata_config" and parent_id is not None:
-                        client.delete_metadata_config(parent_id, obj_id)
-                    elif kind == "formatter":
-                        client.delete_reference_formatter(obj_id)
-                    elif kind == "ingestion_config":
-                        client.delete_ingestion_config(obj_id)
-                    elif kind == "retrieval":
-                        client.delete_retrieval(obj_id)
-                except Exception:
+                    self._delete_content_created_entry(client, kind, parent_id, obj_id)
+                except Exception as e:
+                    print(f"Warning: failed to rollback {kind} {obj_id}: {e}")
                     continue
             raise
 
@@ -670,21 +662,41 @@ class Command(BaseCommand):
             # Rollback creations in reverse order.
             for kind, assistant_id, obj_id in reversed(created):
                 try:
-                    if kind == "faq" and assistant_id is not None:
-                        client.delete_common_question(assistant_id, obj_id)
-                    elif kind == "fixed" and assistant_id is not None:
-                        client.delete_fixed_response(assistant_id, obj_id)
-                    elif kind == "lesson" and assistant_id is not None:
-                        client.delete_lesson(assistant_id, obj_id)
-                    elif kind == "assistant":
-                        client.delete_assistant(obj_id)
-                    elif kind == "tool":
-                        client.delete_script(obj_id)
-                    elif kind == "retrieval_tool":
-                        client.delete_retrieval_tool(obj_id)
-                except Exception:
+                    self._delete_created_entry(client, kind, assistant_id, obj_id)
+                except Exception as e:
+                    print(f"Warning: failed to rollback {kind} {obj_id}: {e}")
                     continue
             raise
+
+    def _delete_created_entry(
+        self, client: CogSolClient, kind: str, parent_id: int | None, obj_id: int
+    ) -> None:
+        if kind == "faq" and parent_id is not None:
+            client.delete_common_question(parent_id, obj_id)
+        elif kind == "fixed" and parent_id is not None:
+            client.delete_fixed_response(parent_id, obj_id)
+        elif kind == "lesson" and parent_id is not None:
+            client.delete_lesson(parent_id, obj_id)
+        elif kind == "assistant":
+            client.delete_assistant(obj_id)
+        elif kind == "tool":
+            client.delete_script(obj_id)
+        elif kind == "retrieval_tool":
+            client.delete_retrieval_tool(obj_id)
+
+    def _delete_content_created_entry(
+        self, client: CogSolClient, kind: str, parent_id: int | None, obj_id: int
+    ) -> None:
+        if kind == "topic":
+            client.delete_node(obj_id)
+        elif kind == "metadata_config" and parent_id is not None:
+            client.delete_metadata_config(parent_id, obj_id)
+        elif kind == "formatter":
+            client.delete_reference_formatter(obj_id)
+        elif kind == "ingestion_config":
+            client.delete_ingestion_config(obj_id)
+        elif kind == "retrieval":
+            client.delete_retrieval(obj_id)
 
     def _rollback_created(
         self, *, created: list[tuple[str, int | None, int]], api_base: str, api_key: str | None
@@ -694,19 +706,9 @@ class Command(BaseCommand):
         client = CogSolClient(api_base, api_key=api_key)
         for kind, assistant_id, obj_id in reversed(created):
             try:
-                if kind == "faq" and assistant_id is not None:
-                    client.delete_common_question(assistant_id, obj_id)
-                elif kind == "fixed" and assistant_id is not None:
-                    client.delete_fixed_response(assistant_id, obj_id)
-                elif kind == "lesson" and assistant_id is not None:
-                    client.delete_lesson(assistant_id, obj_id)
-                elif kind == "assistant":
-                    client.delete_assistant(obj_id)
-                elif kind == "tool":
-                    client.delete_script(obj_id)
-                elif kind == "retrieval_tool":
-                    client.delete_retrieval_tool(obj_id)
-            except Exception:
+                self._delete_created_entry(client, kind, assistant_id, obj_id)
+            except Exception as e:
+                print(f"Warning: failed to rollback {kind} {obj_id}: {e}")
                 continue
 
     def _rollback_content_created(
@@ -717,17 +719,9 @@ class Command(BaseCommand):
         client = CogSolClient(api_base, api_key=api_key, content_base_url=api_base)
         for kind, parent_id, obj_id in reversed(created):
             try:
-                if kind == "topic":
-                    client.delete_node(obj_id)
-                elif kind == "metadata_config" and parent_id is not None:
-                    client.delete_metadata_config(parent_id, obj_id)
-                elif kind == "formatter":
-                    client.delete_reference_formatter(obj_id)
-                elif kind == "ingestion_config":
-                    client.delete_ingestion_config(obj_id)
-                elif kind == "retrieval":
-                    client.delete_retrieval(obj_id)
-            except Exception:
+                self._delete_content_created_entry(client, kind, parent_id, obj_id)
+            except Exception as e:
+                print(f"Warning: failed to rollback {kind} {obj_id}: {e}")
                 continue
 
     def _tool_payload(
