@@ -124,11 +124,12 @@ class Command(BaseCommand):
                 pending_ops.extend(ops)
                 migrations.apply_operations(temp_state, ops)
 
+            created: list[tuple[str, int | None, int]] = []
             try:
                 touched = self._touched_entities(pending_ops)
                 if app_name == "data":
                     class_map = collect_content_classes(project_path, app_name)
-                    remote_ids = self._sync_content_with_api(
+                    remote_ids, created = self._sync_content_with_api(
                         api_base=content_base or api_base,
                         api_key=api_key,
                         state=temp_state,
@@ -139,7 +140,7 @@ class Command(BaseCommand):
                     )
                 else:
                     class_map = collect_classes(project_path, app_name)
-                    remote_ids = self._sync_with_api(
+                    remote_ids, created = self._sync_with_api(
                         api_base=api_base,
                         api_key=api_key,
                         state=temp_state,
@@ -149,15 +150,31 @@ class Command(BaseCommand):
                         app=app_name,
                         touched=touched,
                     )
+
+                applied.extend([mf.stem for mf in pending])
+                self._save_state(state_path, temp_state, remote_ids)
+                migutils.write_applied(applied_path, applied)
+                print(f"Applied {len(pending)} migration(s) for app '{app_name}'.")
             except CogSolAPIError as exc:  # pragma: no cover - I/O
                 print(f"API error while applying migrations: {exc}")
                 exit_code = 1
                 continue
-
-            applied.extend([mf.stem for mf in pending])
-            self._save_state(state_path, temp_state, remote_ids)
-            migutils.write_applied(applied_path, applied)
-            print(f"Applied {len(pending)} migration(s) for app '{app_name}'.")
+            except Exception as exc:
+                print(f"Error while finalizing migrations: {exc}")
+                exit_code = 1
+                if app_name == "data":
+                    self._rollback_content_created(
+                        created=created,
+                        api_base=content_base or api_base,
+                        api_key=api_key,
+                    )
+                else:
+                    self._rollback_created(
+                        created=created,
+                        api_base=api_base,
+                        api_key=api_key,
+                    )
+                continue
 
         return exit_code
 
@@ -240,7 +257,7 @@ class Command(BaseCommand):
         class_map: dict[str, dict[str, type]],
         project_path: Path,
         touched: dict[str, set[str]] | None = None,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], list[tuple[str, int | None, int]]]:
         """Sync Content API entities (topics, formatters, retrievals) with the API."""
         client = CogSolClient(api_base, api_key=api_key, content_base_url=api_base)
         created: list[tuple[str, int | None, int]] = []
@@ -465,23 +482,15 @@ class Command(BaseCommand):
                     created.append(("metadata_config", node_id, new_cfg_id))
                     new_remote.setdefault("metadata_configs", {})[cfg_key] = new_cfg_id
 
-            return new_remote
+            return new_remote, created
 
         except Exception:
             # Rollback creations in reverse order
             for kind, parent_id, obj_id in reversed(created):
                 try:
-                    if kind == "topic":
-                        client.delete_node(obj_id)
-                    elif kind == "metadata_config" and parent_id is not None:
-                        client.delete_metadata_config(parent_id, obj_id)
-                    elif kind == "formatter":
-                        client.delete_reference_formatter(obj_id)
-                    elif kind == "ingestion_config":
-                        client.delete_ingestion_config(obj_id)
-                    elif kind == "retrieval":
-                        client.delete_retrieval(obj_id)
-                except Exception:
+                    self._delete_content_created_entry(client, kind, parent_id, obj_id)
+                except Exception as e:
+                    print(f"Warning: failed to rollback {kind} {obj_id}: {e}")
                     continue
             raise
 
@@ -496,7 +505,7 @@ class Command(BaseCommand):
         project_path: Path,
         app: str,
         touched: dict[str, set[str]] | None = None,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], list[tuple[str, int | None, int]]]:
         client = CogSolClient(api_base, api_key=api_key)
         created: list[tuple[str, int | None, int]] = []
         new_remote = copy.deepcopy(remote_ids)
@@ -584,7 +593,7 @@ class Command(BaseCommand):
                         lesson_filter.setdefault(agent, set()).add(name)
                 sync_related = bool(faq_filter or fixed_filter or lesson_filter)
             if not sync_related:
-                return new_remote
+                return new_remote, created
 
             agents_filter = set(faq_filter) | set(fixed_filter) | set(lesson_filter)
 
@@ -648,26 +657,72 @@ class Command(BaseCommand):
                             created.append(("lesson", assistant_id, new_id))
                         new_remote["lessons"][agent_name][payload["name"]] = new_id
 
-            return new_remote
+            return new_remote, created
         except Exception:
             # Rollback creations in reverse order.
             for kind, assistant_id, obj_id in reversed(created):
                 try:
-                    if kind == "faq" and assistant_id is not None:
-                        client.delete_common_question(assistant_id, obj_id)
-                    elif kind == "fixed" and assistant_id is not None:
-                        client.delete_fixed_response(assistant_id, obj_id)
-                    elif kind == "lesson" and assistant_id is not None:
-                        client.delete_lesson(assistant_id, obj_id)
-                    elif kind == "assistant":
-                        client.delete_assistant(obj_id)
-                    elif kind == "tool":
-                        client.delete_script(obj_id)
-                    elif kind == "retrieval_tool":
-                        client.delete_retrieval_tool(obj_id)
-                except Exception:
+                    self._delete_created_entry(client, kind, assistant_id, obj_id)
+                except Exception as e:
+                    print(f"Warning: failed to rollback {kind} {obj_id}: {e}")
                     continue
             raise
+
+    def _delete_created_entry(
+        self, client: CogSolClient, kind: str, parent_id: int | None, obj_id: int
+    ) -> None:
+        if kind == "faq" and parent_id is not None:
+            client.delete_common_question(parent_id, obj_id)
+        elif kind == "fixed" and parent_id is not None:
+            client.delete_fixed_response(parent_id, obj_id)
+        elif kind == "lesson" and parent_id is not None:
+            client.delete_lesson(parent_id, obj_id)
+        elif kind == "assistant":
+            client.delete_assistant(obj_id)
+        elif kind == "tool":
+            client.delete_script(obj_id)
+        elif kind == "retrieval_tool":
+            client.delete_retrieval_tool(obj_id)
+
+    def _delete_content_created_entry(
+        self, client: CogSolClient, kind: str, parent_id: int | None, obj_id: int
+    ) -> None:
+        if kind == "topic":
+            client.delete_node(obj_id)
+        elif kind == "metadata_config" and parent_id is not None:
+            client.delete_metadata_config(parent_id, obj_id)
+        elif kind == "formatter":
+            client.delete_reference_formatter(obj_id)
+        elif kind == "ingestion_config":
+            client.delete_ingestion_config(obj_id)
+        elif kind == "retrieval":
+            client.delete_retrieval(obj_id)
+
+    def _rollback_created(
+        self, *, created: list[tuple[str, int | None, int]], api_base: str, api_key: str | None
+    ) -> None:
+        if not created:
+            return
+        client = CogSolClient(api_base, api_key=api_key)
+        for kind, assistant_id, obj_id in reversed(created):
+            try:
+                self._delete_created_entry(client, kind, assistant_id, obj_id)
+            except Exception as e:
+                print(f"Warning: failed to rollback {kind} {obj_id}: {e}")
+                continue
+
+    def _rollback_content_created(
+        self, *, created: list[tuple[str, int | None, int]], api_base: str, api_key: str | None
+    ) -> None:
+        if not created:
+            return
+        client = CogSolClient(api_base, api_key=api_key, content_base_url=api_base)
+        for kind, parent_id, obj_id in reversed(created):
+            try:
+                self._delete_content_created_entry(client, kind, parent_id, obj_id)
+            except Exception as e:
+                print(f"Warning: failed to rollback {kind} {obj_id}: {e}")
+                continue
 
     def _tool_payload(
         self,
