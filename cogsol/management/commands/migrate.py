@@ -2,12 +2,13 @@
 
 import ast
 import copy
+import inspect
 import json
 import os
 import re
 import textwrap
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 from cogsol.agents import genconfigs
 from cogsol.content import BaseRetrieval
@@ -18,8 +19,17 @@ from cogsol.core.constants import (
     get_content_api_base_url,
 )
 from cogsol.core.env import load_dotenv
+from cogsol.core.loader import _extract_tool_params, collect_classes, collect_content_classes
 from cogsol.db import migrations
 from cogsol.management.base import BaseCommand
+from cogsol.prompts import Prompt
+from cogsol.tools import BaseTool
+
+
+def _tool_key(obj: Any) -> str:
+    cls = obj if isinstance(obj, type) else obj.__class__
+    cname = cls.__name__
+    return cname[:-4] if cname.endswith("Tool") else cname
 
 
 def _normalize_code(code: Any) -> str:
@@ -29,13 +39,12 @@ def _normalize_code(code: Any) -> str:
     return textwrap.dedent(code).rstrip()
 
 
-def _name_aliases(name: str) -> set[str]:
-    aliases = {name}
-    if name.endswith("Tool") and len(name) > 4:
-        aliases.add(name[:-4])
-    elif not name.endswith("Tool"):
-        aliases.add(f"{name}Tool")
-    return aliases
+def sub_slug(cls: type | None) -> str | None:
+    if cls and hasattr(cls, "__module__"):
+        parts = cls.__module__.split(".")
+        if len(parts) >= 2:
+            return parts[1]
+    return None
 
 
 class Command(BaseCommand):
@@ -52,7 +61,7 @@ class Command(BaseCommand):
     def handle(self, project_path: Path | None, **options: Any) -> int:
         assert project_path is not None, "project_path is required"
         app = options.get("app")
-        apps = [str(app)] if app else ["data", "agents"]
+        apps = [str(app)] if app else ["agents", "data"]
 
         load_dotenv(project_path / ".env")
         api_base = get_cognitive_api_base_url()
@@ -119,20 +128,26 @@ class Command(BaseCommand):
             try:
                 touched = self._touched_entities(pending_ops)
                 if app_name == "data":
+                    class_map = collect_content_classes(project_path, app_name)
                     remote_ids, created = self._sync_content_with_api(
                         api_base=content_base or api_base,
                         api_key=api_key,
                         state=temp_state,
                         remote_ids=remote_ids,
+                        class_map=class_map,
+                        project_path=project_path,
                         touched=touched,
                     )
                 else:
+                    class_map = collect_classes(project_path, app_name)
                     remote_ids, created = self._sync_with_api(
                         api_base=api_base,
                         api_key=api_key,
                         state=temp_state,
                         remote_ids=remote_ids,
+                        class_map=class_map,
                         project_path=project_path,
+                        app=app_name,
                         touched=touched,
                     )
 
@@ -192,6 +207,8 @@ class Command(BaseCommand):
             "agents": {},
             "tools": {},
             "retrieval_tools": {},
+            "mcp_servers": {},
+            "mcp_tools": {},
             "lessons": {},
             "faqs": {},
             "fixed_responses": {},
@@ -239,6 +256,8 @@ class Command(BaseCommand):
         api_key: str | None,
         state: dict[str, Any],
         remote_ids: dict[str, Any],
+        class_map: dict[str, dict[str, type]],
+        project_path: Path,
         touched: dict[str, set[str]] | None = None,
     ) -> tuple[dict[str, Any], list[tuple[str, int | None, int]]]:
         """Sync Content API entities (topics, formatters, retrievals) with the API."""
@@ -484,7 +503,9 @@ class Command(BaseCommand):
         api_key: str | None,
         state: dict[str, Any],
         remote_ids: dict[str, Any],
+        class_map: dict[str, dict[str, type]],
         project_path: Path,
+        app: str,
         touched: dict[str, set[str]] | None = None,
     ) -> tuple[dict[str, Any], list[tuple[str, int | None, int]]]:
         client = CogSolClient(api_base, api_key=api_key)
@@ -496,55 +517,124 @@ class Command(BaseCommand):
             for tool_name, definition in state.get("tools", {}).items():
                 if touched is not None and tool_name not in touched.get("tools", set()):
                     continue
-                payload = self._tool_payload(tool_name, definition)
+                cls = cast(Optional[type[BaseTool]], class_map.get("tools", {}).get(tool_name))
+                payload = self._tool_payload(tool_name, definition, cls)
                 remote_id = new_remote.get("tools", {}).get(tool_name)
-                if remote_id is None and payload.get("name"):
-                    remote_id = new_remote.get("tools", {}).get(str(payload["name"]))
                 new_id = client.upsert_script(remote_id=remote_id, payload=payload)
                 if not remote_id:
                     created.append(("tool", None, new_id))
+                # store under multiple keys to ensure lookup (normalized, class name, explicit name)
                 new_remote.setdefault("tools", {})[tool_name] = new_id
-                if payload.get("name"):
-                    new_remote["tools"][str(payload["name"])] = new_id
-                for alias in _name_aliases(tool_name):
-                    new_remote["tools"][alias] = new_id
+                if cls is not None:
+                    norm = _tool_key(cls)
+                    new_remote["tools"][norm] = new_id
+                    new_remote["tools"][cls.__name__] = new_id
+                    explicit_name = getattr(cls, "name", None)
+                    if explicit_name:
+                        new_remote["tools"][explicit_name] = new_id
 
             # Upsert retrieval tools.
             for tool_name, definition in state.get("retrieval_tools", {}).items():
                 if touched is not None and tool_name not in touched.get("retrieval_tools", set()):
                     continue
+                cls = class_map.get("retrieval_tools", {}).get(tool_name)
                 payload = self._retrieval_tool_payload(
                     tool_name=tool_name,
                     definition=definition,
+                    cls=cls,
                     project_path=project_path,
                 )
                 remote_id = new_remote.get("retrieval_tools", {}).get(tool_name)
-                if remote_id is None and payload.get("name"):
-                    remote_id = new_remote.get("retrieval_tools", {}).get(str(payload["name"]))
                 new_id = client.upsert_retrieval_tool(remote_id=remote_id, payload=payload)
                 if not remote_id:
                     created.append(("retrieval_tool", None, new_id))
                 new_remote.setdefault("retrieval_tools", {})[tool_name] = new_id
-                if payload.get("name"):
-                    new_remote["retrieval_tools"][str(payload["name"])] = new_id
-                for alias in _name_aliases(tool_name):
-                    new_remote["retrieval_tools"][alias] = new_id
+                if cls is not None:
+                    new_remote["retrieval_tools"][cls.__name__] = new_id
+                    explicit_name = getattr(cls, "name", None)
+                    if explicit_name:
+                        new_remote["retrieval_tools"][explicit_name] = new_id
 
-            agents_with_faqs = self._agents_from_related_bucket(state.get("faqs", {}))
-            agents_with_fixed = self._agents_from_related_bucket(state.get("fixed_responses", {}))
-            agents_with_lessons = self._agents_from_related_bucket(state.get("lessons", {}))
+            # Upsert MCP servers (must come before MCP tools).
+            for srv_name, definition in state.get("mcp_servers", {}).items():
+                if touched is not None and srv_name not in touched.get("mcp_servers", set()):
+                    continue
+                fields = definition.get("fields", {}) if definition else {}
+                cls = class_map.get("mcp_servers", {}).get(srv_name)
+
+                def _cls_or_field(
+                    attr: str,
+                    default: Any = None,
+                    cls_ref: type[Any] | None = cls,
+                    fields_ref: dict[str, Any] = fields,
+                ) -> Any:
+                    if cls_ref is not None and hasattr(cls_ref, attr):
+                        return getattr(cls_ref, attr)
+                    return fields_ref.get(attr, default)
+
+                auth_type = _cls_or_field("auth_type", "headers")
+                payload = {
+                    "name": fields.get("name", srv_name),
+                    "description": fields.get("description") or "",
+                    "url": _cls_or_field("url", ""),
+                    "headers": _cls_or_field("headers", {})
+                        if auth_type != "oauth2" else {},
+                    "protocol_version": fields.get("protocol_version", "2025-03-26"),
+                    "client_name": fields.get("client_name", "cognitive-mcp-client"),
+                    "client_version": fields.get("client_version", "1.0.0"),
+                    "active": fields.get("active", True),
+                    "auth_type": auth_type,
+                }
+                # Build oauth_config for OAuth 2.1 servers
+                if auth_type == "oauth2":
+                    oauth_config: dict[str, Any] = {}
+                    client_id = _cls_or_field("oauth_client_id")
+                    if client_id:
+                        oauth_config["client_id"] = client_id
+                    scopes = _cls_or_field("oauth_scopes")
+                    if scopes:
+                        oauth_config["scopes"] = scopes
+                    payload["oauth_config"] = oauth_config
+                remote_id = new_remote.get("mcp_servers", {}).get(srv_name)
+                new_id = client.upsert_mcp_server(remote_id=remote_id, payload=payload)
+                if not remote_id:
+                    created.append(("mcp_server", None, new_id))
+                new_remote.setdefault("mcp_servers", {})[srv_name] = new_id
+                if cls is not None:
+                    new_remote["mcp_servers"][cls.__name__] = new_id
+
+            # Sync MCP tools (grouped by server).
+            mcp_tools_by_server: dict[str, list[str]] = {}
+            for tool_name, definition in state.get("mcp_tools", {}).items():
+                if touched is not None and tool_name not in touched.get("mcp_tools", set()):
+                    continue
+                fields = definition.get("fields", {}) if definition else {}
+                server_ref = fields.get("server", "")
+                mcp_tools_by_server.setdefault(server_ref, []).append(fields.get("name", tool_name))
+            for server_ref, tool_names in mcp_tools_by_server.items():
+                server_remote_id = new_remote.get("mcp_servers", {}).get(server_ref)
+                if not server_remote_id:
+                    print(f"  Warning: MCP server '{server_ref}' not found for tools sync.")
+                    continue
+                result = client.sync_mcp_server_tools(server_remote_id, tool_names)
+                had_ids = self._update_mcp_tool_remote_ids(new_remote, result)
+                if not had_ids:
+                    listed = client.list_mcp_server_tools(server_remote_id)
+                    self._update_mcp_tool_remote_ids(new_remote, listed)
 
             # Upsert agents.
             for agent_name, definition in state.get("agents", {}).items():
                 if touched is not None and agent_name not in touched.get("agents", set()):
                     continue
+                cls = class_map.get("agents", {}).get(agent_name)
                 payload = self._assistant_payload(
                     agent_name=agent_name,
                     definition=definition,
+                    cls=cls,
                     remote_ids=new_remote,
-                    faq_available=agent_name in agents_with_faqs,
-                    fixed_available=agent_name in agents_with_fixed,
-                    lessons_available=agent_name in agents_with_lessons,
+                    project_path=project_path,
+                    app=app,
+                    slug=sub_slug(cls),
                 )
                 remote_id = new_remote.get("agents", {}).get(agent_name)
                 new_id = client.upsert_assistant(remote_id=remote_id, payload=payload)
@@ -552,66 +642,89 @@ class Command(BaseCommand):
                     created.append(("assistant", None, new_id))
                 new_remote.setdefault("agents", {})[agent_name] = new_id
 
-            # Upsert FAQs (common questions), fixed responses, lessons per agent from migration state.
-            for key, definition in state.get("faqs", {}).items():
-                if touched is not None and key not in touched.get("faqs", set()):
+            # Upsert FAQs (common questions), fixed responses, lessons per agent.
+            sync_related = True
+            faq_filter: dict[str, set[str]] = {}
+            fixed_filter: dict[str, set[str]] = {}
+            lesson_filter: dict[str, set[str]] = {}
+            if touched is not None:
+                for key in touched.get("faqs", set()):
+                    agent, _, name = key.partition("::")
+                    if agent and name:
+                        faq_filter.setdefault(agent, set()).add(name)
+                for key in touched.get("fixed_responses", set()):
+                    agent, _, name = key.partition("::")
+                    if agent and name:
+                        fixed_filter.setdefault(agent, set()).add(name)
+                for key in touched.get("lessons", set()):
+                    agent, _, name = key.partition("::")
+                    if agent and name:
+                        lesson_filter.setdefault(agent, set()).add(name)
+                sync_related = bool(faq_filter or fixed_filter or lesson_filter)
+            if not sync_related:
+                return new_remote, created
+
+            agents_filter = set(faq_filter) | set(fixed_filter) | set(lesson_filter)
+
+            for agent_name, agent_cls in class_map.get("agents", {}).items():
+                if agents_filter and agent_name not in agents_filter:
                     continue
-                fields = definition.get("fields", {}) if definition else {}
-                agent_name = str(fields.get("agent") or str(key).partition("::")[0])
                 assistant_id = new_remote.get("agents", {}).get(agent_name)
                 if not assistant_id:
                     continue
-                payload = self._faq_payload_from_fields(str(key), fields)
                 new_remote.setdefault("faqs", {}).setdefault(agent_name, {})
-                remote_id = new_remote["faqs"][agent_name].get(payload["name"])
-                new_id = client.upsert_common_question(
-                    assistant_id=assistant_id,
-                    remote_id=remote_id,
-                    payload=payload,
-                )
-                if not remote_id:
-                    created.append(("faq", assistant_id, new_id))
-                new_remote["faqs"][agent_name][payload["name"]] = new_id
-
-            for key, definition in state.get("fixed_responses", {}).items():
-                if touched is not None and key not in touched.get("fixed_responses", set()):
-                    continue
-                fields = definition.get("fields", {}) if definition else {}
-                agent_name = str(fields.get("agent") or str(key).partition("::")[0])
-                assistant_id = new_remote.get("agents", {}).get(agent_name)
-                if not assistant_id:
-                    continue
-                payload = self._fixed_payload_from_fields(str(key), fields)
                 new_remote.setdefault("fixed_responses", {}).setdefault(agent_name, {})
-                remote_id = new_remote["fixed_responses"][agent_name].get(payload["name"])
-                new_id = client.upsert_fixed_response(
-                    assistant_id=assistant_id,
-                    remote_id=remote_id,
-                    payload=payload,
-                )
-                if not remote_id:
-                    created.append(("fixed", assistant_id, new_id))
-                new_remote["fixed_responses"][agent_name][payload["name"]] = new_id
-
-            for key, definition in state.get("lessons", {}).items():
-                if touched is not None and key not in touched.get("lessons", set()):
-                    continue
-                fields = definition.get("fields", {}) if definition else {}
-                agent_name = str(fields.get("agent") or str(key).partition("::")[0])
-                assistant_id = new_remote.get("agents", {}).get(agent_name)
-                if not assistant_id:
-                    continue
-                payload = self._lesson_payload_from_fields(str(key), fields)
                 new_remote.setdefault("lessons", {}).setdefault(agent_name, {})
-                remote_id = new_remote["lessons"][agent_name].get(payload["name"])
-                new_id = client.upsert_lesson(
-                    assistant_id=assistant_id,
-                    remote_id=remote_id,
-                    payload=payload,
-                )
-                if not remote_id:
-                    created.append(("lesson", assistant_id, new_id))
-                new_remote["lessons"][agent_name][payload["name"]] = new_id
+
+                for faq_obj in getattr(agent_cls, "faqs", []) or []:
+                    payload = self._faq_payload(faq_obj)
+                    if faq_filter.get(agent_name) and payload["name"] not in faq_filter[agent_name]:
+                        continue
+                    remote_id = new_remote["faqs"][agent_name].get(payload["name"])
+                    new_id = client.upsert_common_question(
+                        assistant_id=assistant_id,
+                        remote_id=remote_id,
+                        payload=payload,
+                    )
+                    if not remote_id:
+                        created.append(("faq", assistant_id, new_id))
+                    new_remote["faqs"][agent_name][payload["name"]] = new_id
+
+                if fixed_filter:
+                    for fx_obj in getattr(agent_cls, "fixed_responses", []) or []:
+                        payload = self._fixed_payload(fx_obj)
+                        if (
+                            fixed_filter.get(agent_name)
+                            and payload["name"] not in fixed_filter[agent_name]
+                        ):
+                            continue
+                        remote_id = new_remote["fixed_responses"][agent_name].get(payload["name"])
+                        new_id = client.upsert_fixed_response(
+                            assistant_id=assistant_id,
+                            remote_id=remote_id,
+                            payload=payload,
+                        )
+                        if not remote_id:
+                            created.append(("fixed", assistant_id, new_id))
+                        new_remote["fixed_responses"][agent_name][payload["name"]] = new_id
+
+                if lesson_filter:
+                    for lesson_obj in getattr(agent_cls, "lessons", []) or []:
+                        payload = self._lesson_payload(lesson_obj)
+                        if (
+                            lesson_filter.get(agent_name)
+                            and payload["name"] not in lesson_filter[agent_name]
+                        ):
+                            continue
+                        remote_id = new_remote["lessons"][agent_name].get(payload["name"])
+                        new_id = client.upsert_lesson(
+                            assistant_id=assistant_id,
+                            remote_id=remote_id,
+                            payload=payload,
+                        )
+                        if not remote_id:
+                            created.append(("lesson", assistant_id, new_id))
+                        new_remote["lessons"][agent_name][payload["name"]] = new_id
 
             return new_remote, created
         except Exception:
@@ -621,8 +734,52 @@ class Command(BaseCommand):
                     self._delete_created_entry(client, kind, assistant_id, obj_id)
                 except Exception as e:
                     print(f"Warning: failed to rollback {kind} {obj_id}: {e}")
-                    continue
+                    try:
+                        if kind == "faq" and assistant_id is not None:
+                            client.delete_common_question(assistant_id, obj_id)
+                        elif kind == "fixed" and assistant_id is not None:
+                            client.delete_fixed_response(assistant_id, obj_id)
+                        elif kind == "lesson" and assistant_id is not None:
+                            client.delete_lesson(assistant_id, obj_id)
+                        elif kind == "assistant":
+                            client.delete_assistant(obj_id)
+                        elif kind == "tool":
+                            client.delete_script(obj_id)
+                        elif kind == "retrieval_tool":
+                            client.delete_retrieval_tool(obj_id)
+                        elif kind == "mcp_server":
+                            client.delete_mcp_server(obj_id)
+                    except Exception:
+                        continue
             raise
+
+    def _update_mcp_tool_remote_ids(self, remote_ids: dict[str, Any], payload: Any) -> bool:
+        """Extract MCP tool ids from API payloads and store them in ``remote_ids``.
+
+        Accepts either a raw list of tool dicts or dict payloads containing a
+        ``results``/``configured_tools``/``tools`` list.
+        """
+        items: list[Any] = []
+        if isinstance(payload, list):
+            items = payload
+        elif isinstance(payload, dict):
+            for key in ("results", "configured_tools", "tools"):
+                value = payload.get(key)
+                if isinstance(value, list):
+                    items.extend(value)
+
+        found = False
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if "id" not in item:
+                continue
+            tname = item.get("name")
+            if not tname:
+                continue
+            remote_ids.setdefault("mcp_tools", {})[str(tname)] = int(item["id"])
+            found = True
+        return found
 
     def _delete_created_entry(
         self, client: CogSolClient, kind: str, parent_id: int | None, obj_id: int
@@ -684,51 +841,50 @@ class Command(BaseCommand):
         self,
         tool_name: str,
         definition: dict[str, Any],
+        cls: type[BaseTool] | None,
     ) -> dict[str, Any]:
         fields = definition.get("fields", {}) if definition else {}
 
-        params: list[dict[str, Any]] = []
-        raw_params = fields.get("parameters", {})
-        if isinstance(raw_params, dict):
-            for name, meta in raw_params.items():
-                meta = meta or {}
-                param_entry = {
-                    "name": str(name),
-                    "description": meta.get("description") or str(name),
-                    "type": meta.get("type") or "string",
-                    "required": bool(meta.get("required", True)),
-                }
-                if param_entry["type"] == "array" and "items" in meta:
-                    param_entry["items"] = meta["items"]
-                params.append(param_entry)
-        elif isinstance(raw_params, list):
-            for item in raw_params:
-                if not isinstance(item, dict):
-                    continue
-                name = str(item.get("name") or "")
-                if not name:
-                    continue
-                param_entry = {
-                    "name": name,
-                    "description": item.get("description") or name,
-                    "type": item.get("type") or "string",
-                    "required": bool(item.get("required", True)),
-                }
-                if param_entry["type"] == "array" and "items" in item:
-                    param_entry["items"] = item["items"]
-                params.append(param_entry)
+        def _get(attr: str, default=None):
+            if cls is not None and hasattr(cls, attr):
+                return getattr(cls, attr)
+            return fields.get(attr, default)
 
-        description = fields.get("description") or f"Tool {tool_name}"
-        code = self._tool_script_from_state(fields)
+        params = []
+        if cls is not None:
+            param_def = _extract_tool_params(cls)
+        else:
+            param_def = definition.get("fields", {}).get("parameters", {}) if definition else {}
+        for name, meta in (param_def or {}).items():
+            meta = meta or {}
+            param_entry = {
+                "name": name,
+                "description": meta.get("description") or name,
+                "type": meta.get("type") or "string",
+                "required": bool(meta.get("required", True)),
+            }
+            # Include 'items' for array types if specified
+            if param_entry["type"] == "array" and "items" in meta:
+                param_entry["items"] = meta["items"]
+            params.append(param_entry)
+
+        description = (
+            (definition.get("fields", {}) or {}).get("description") if definition else None
+        )
+        if not description and cls is not None:
+            description = getattr(cls, "description", None)
+        description = description or f"Tool {tool_name}"
+
+        code = self._tool_script_from_class(cls) if cls is not None else ""
         code = code or "# TODO: provide implementation\nresponse = None"
 
         return {
-            "name": fields.get("name") or tool_name,
+            "name": tool_name,
             "description": description,
             "parameters": params,
-            "show_tool_message": bool(fields.get("show_tool_message", False)),
-            "show_assistant_message": bool(fields.get("show_assistant_message", False)),
-            "edit_available": bool(fields.get("edit_available", True)),
+            "show_tool_message": bool(_get("show_tool_message", False)),
+            "show_assistant_message": bool(_get("show_assistant_message", False)),
+            "edit_available": bool(_get("edit_available", True)),
             "code": code,
         }
 
@@ -737,9 +893,15 @@ class Command(BaseCommand):
         *,
         tool_name: str,
         definition: dict[str, Any],
+        cls: type | None,
         project_path: Path,
     ) -> dict[str, Any]:
         fields = definition.get("fields", {}) if definition else {}
+
+        def _get(attr: str, default=None):
+            if cls is not None and hasattr(cls, attr):
+                return getattr(cls, attr)
+            return fields.get(attr, default)
 
         def _resolve_retrieval_id(value: Any) -> int:
             if value is None:
@@ -763,7 +925,7 @@ class Command(BaseCommand):
                 )
             return int(retrieval_id)
 
-        params = list(fields.get("parameters") or [])
+        params = list(_get("parameters") or [])
         if not params:
             params.append(
                 {
@@ -773,18 +935,18 @@ class Command(BaseCommand):
                     "required": True,
                 }
             )
-        description = fields.get("description") or f"Retrieval tool {tool_name}"
-        retrieval_id = _resolve_retrieval_id(fields.get("retrieval"))
+        description = _get("description") or f"Retrieval tool {tool_name}"
+        retrieval_id = _resolve_retrieval_id(_get("retrieval"))
 
         return {
-            "name": fields.get("name") or tool_name,
+            "name": _get("name") or tool_name,
             "description": description,
             "parameters": params,
-            "show_tool_message": bool(fields.get("show_tool_message", False)),
-            "show_assistant_message": bool(fields.get("show_assistant_message", False)),
-            "edit_available": bool(fields.get("edit_available", True)),
+            "show_tool_message": bool(_get("show_tool_message", False)),
+            "show_assistant_message": bool(_get("show_assistant_message", False)),
+            "edit_available": bool(_get("edit_available", True)),
             "retrieval_id": retrieval_id,
-            "answer": bool(fields.get("answer", True)),
+            "answer": bool(_get("answer", True)),
         }
 
     def _assistant_payload(
@@ -792,15 +954,18 @@ class Command(BaseCommand):
         *,
         agent_name: str,
         definition: dict[str, Any],
+        cls: type | None,
         remote_ids: dict[str, Any],
-        faq_available: bool,
-        fixed_available: bool,
-        lessons_available: bool,
+        project_path: Path,
+        app: str,
+        slug: str | None = None,
     ) -> dict[str, Any]:
         fields = definition.get("fields", {}) if definition else {}
         meta = definition.get("meta", {}) if definition else {}
 
         def _get(attr: str, default=None):
+            if cls is not None and hasattr(cls, attr):
+                return getattr(cls, attr)
             return fields.get(attr, default)
 
         def _get_meta(attr: str, default=None):
@@ -832,37 +997,68 @@ class Command(BaseCommand):
                     return v
             return None
 
-        def _resolve_tool_id(raw: Any) -> int | None:
-            candidates: list[str] = []
-            if isinstance(raw, str):
-                candidates.append(raw)
-            elif isinstance(raw, dict) and raw.get("name"):
-                candidates.append(str(raw.get("name")))
-            if not candidates and raw is not None:
-                candidates.append(str(raw))
+        def _prompt_text(value: Any) -> str:
+            if isinstance(value, Prompt):
+                candidates = []
+                if value.base_dir:
+                    candidates.append(Path(value.base_dir) / "prompts" / value.path)
+                if slug:
+                    candidates.append(project_path / app / slug / "prompts" / value.path)
+                candidates.append(project_path / app / "prompts" / value.path)
+                for candidate in candidates:
+                    if candidate.exists():
+                        try:
+                            return candidate.read_text(encoding="utf-8")
+                        except FileNotFoundError:
+                            continue
+                return str(value.path)
+            if isinstance(value, Path):
+                try:
+                    return value.read_text(encoding="utf-8")
+                except FileNotFoundError:
+                    return str(value)
+            return str(value) if value is not None else ""
 
-            for candidate in candidates:
-                for alias in _name_aliases(candidate):
-                    tool_id = remote_ids.get("tools", {}).get(alias)
-                    if isinstance(tool_id, int):
-                        return tool_id
-                    if isinstance(tool_id, str) and tool_id.isdigit():
-                        return int(tool_id)
-                    retrieval_id = remote_ids.get("retrieval_tools", {}).get(alias)
-                    if isinstance(retrieval_id, int):
-                        return retrieval_id
-                    if isinstance(retrieval_id, str) and retrieval_id.isdigit():
-                        return int(retrieval_id)
+        tools = getattr(cls, "tools", []) if cls else []
+        pretools = getattr(cls, "pretools", []) if cls else []
+
+        def _resolve_tool_id(t) -> int | None:
+            candidates = [
+                getattr(t, "name", None),
+                _tool_key(t),
+                getattr(t, "__name__", None),
+                t.__class__.__name__,
+            ]
+            for name in candidates:
+                if not name:
+                    continue
+                tool_id = remote_ids.get("tools", {}).get(name)
+                if isinstance(tool_id, int):
+                    return tool_id
+                if isinstance(tool_id, str) and tool_id.isdigit():
+                    return int(tool_id)
+
+                retrieval_id = remote_ids.get("retrieval_tools", {}).get(name)
+                if isinstance(retrieval_id, int):
+                    return retrieval_id
+                if isinstance(retrieval_id, str) and retrieval_id.isdigit():
+                    return int(retrieval_id)
+
+                mcp_tool_id = remote_ids.get("mcp_tools", {}).get(name)
+                if isinstance(mcp_tool_id, int):
+                    return mcp_tool_id
+                if isinstance(mcp_tool_id, str) and mcp_tool_id.isdigit():
+                    return int(mcp_tool_id)
             return None
 
         tool_ids: list[int] = []
-        for t in list(_get("tools", []) or []):
+        for t in tools:
             remote_id = _resolve_tool_id(t)
             if remote_id:
                 tool_ids.append(remote_id)
 
         pretool_ids: list[int] = []
-        for t in list(_get("pretools", []) or []):
+        for t in pretools:
             remote_id = _resolve_tool_id(t)
             if remote_id:
                 pretool_ids.append(remote_id)
@@ -881,7 +1077,7 @@ class Command(BaseCommand):
             "generation_config": _normalize_config(_get("generation_config")),
             "generation_config_pretools": _normalize_config(_get("pregeneration_config")),
             "description": _get_meta("chat_name") or f"Agent {agent_name}",
-            "system_prompt": str(_get("system_prompt") or ""),
+            "system_prompt": _prompt_text(_get("system_prompt")),
             "temperature": float(_get("temperature") or 0.0),
             "max_responses": _int_or_default(
                 _first_non_none(_get("max_responses"), _get("max_interactions")), default=0
@@ -903,9 +1099,13 @@ class Command(BaseCommand):
             "matrix_mode_available": bool(_get("realtime", False)),
             "not_info_message": _get("no_information_message"),
             "strategy_to_optimize_tokens": None,
-            "faq_available": bool(faq_available or fields.get("faqs")),
-            "fixed_available": bool(fixed_available or fields.get("fixed_responses")),
-            "lessons_available": bool(lessons_available or fields.get("lessons")),
+            "faq_available": bool(getattr(cls, "faqs", []) if cls else fields.get("faqs")),
+            "fixed_available": bool(
+                getattr(cls, "fixed_responses", []) if cls else fields.get("fixed_responses")
+            ),
+            "lessons_available": bool(
+                getattr(cls, "lessons", []) if cls else fields.get("lessons")
+            ),
             "realtime_available": bool(_get("realtime", False)),
             "info": None,
             "colors": colors,
@@ -916,49 +1116,33 @@ class Command(BaseCommand):
         }
         return payload
 
-    def _agents_from_related_bucket(self, bucket: dict[str, Any]) -> set[str]:
-        agents: set[str] = set()
-        for key, definition in (bucket or {}).items():
-            fields = definition.get("fields", {}) if isinstance(definition, dict) else {}
-            agent_name = str(fields.get("agent") or str(key).partition("::")[0]).strip()
-            if agent_name:
-                agents.add(agent_name)
-        return agents
-
-    def _faq_payload_from_fields(self, key: str, fields: dict[str, Any]) -> dict[str, Any]:
-        _, _, default_name = key.partition("::")
-        name = str(fields.get("name") or default_name or key)
-        content = str(fields.get("content") or "")
+    def _faq_payload(self, faq_obj: Any) -> dict[str, Any]:
+        name = (
+            getattr(faq_obj, "question", None)
+            or getattr(faq_obj, "name", None)
+            or faq_obj.__class__.__name__
+        )
+        content = getattr(faq_obj, "answer", None) or getattr(faq_obj, "content", None) or ""
         return {
             "name": name,
             "content": content,
             "additional_metadata": {},
         }
 
-    def _fixed_payload_from_fields(self, key: str, fields: dict[str, Any]) -> dict[str, Any]:
-        _, _, default_name = key.partition("::")
-        name = str(fields.get("name") or default_name or key)
-        content = str(fields.get("content") or "")
-        meta = fields.get("meta")
-        topic = None
-        if isinstance(meta, dict):
-            topic = meta.get("topic")
-        topic = topic or name
+    def _fixed_payload(self, obj: Any) -> dict[str, Any]:
+        key = getattr(obj, "key", None) or getattr(obj, "name", None) or obj.__class__.__name__
+        content = getattr(obj, "response", None) or getattr(obj, "content", None) or ""
         return {
-            "topic": topic,
+            "topic": key,
             "content": content,
-            "name": name,
+            "name": key,
             "additional_metadata": {},
         }
 
-    def _lesson_payload_from_fields(self, key: str, fields: dict[str, Any]) -> dict[str, Any]:
-        _, _, default_name = key.partition("::")
-        name = str(fields.get("name") or default_name or key)
-        content = str(fields.get("content") or "")
-        context = "general"
-        meta = fields.get("meta")
-        if isinstance(meta, dict):
-            context = str(meta.get("context_of_application") or "general")
+    def _lesson_payload(self, obj: Any) -> dict[str, Any]:
+        name = getattr(obj, "name", None) or obj.__class__.__name__
+        content = getattr(obj, "content", None) or ""
+        context = getattr(obj, "context_of_application", None) or "general"
         return {
             "name": name,
             "content": content,
@@ -966,71 +1150,99 @@ class Command(BaseCommand):
             "additional_metadata": {},
         }
 
-    def _tool_script_from_state(self, fields: dict[str, Any]) -> str:
-        raw_code = fields.get("__code__")
-        if not isinstance(raw_code, str) or not raw_code.strip():
+    def _tool_helper_source(self, node: ast.AST) -> str:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             return ""
-        code = _normalize_code(raw_code)
-        if not code:
+        fn_node = ast.fix_missing_locations(ast.copy_location(node, node))
+        fn_node.decorator_list = []
+        if fn_node.args.posonlyargs and fn_node.args.posonlyargs[0].arg == "self":
+            fn_node.args.posonlyargs = fn_node.args.posonlyargs[1:]
+        if fn_node.args.args and fn_node.args.args[0].arg == "self":
+            fn_node.args.args = fn_node.args.args[1:]
+        return ast.unparse(fn_node).strip()
+
+    def _replace_self_calls(self, code: str, helper_names: list[str]) -> str:
+        rewritten = code
+        for name in helper_names:
+            rewritten = re.sub(rf"\bself\.{name}\b", name, rewritten)
+        return rewritten
+
+    def _tool_script_from_class(self, cls: type[BaseTool] | None) -> str:
+        if cls is None:
             return ""
-        params_to_bind = self._tool_param_names_from_fields(fields.get("parameters"))
-        return self._tool_script_from_code(code, params_to_bind)
-
-    def _tool_param_names_from_fields(self, raw_params: Any) -> list[str]:
-        names: list[str] = []
-        if isinstance(raw_params, dict):
-            names = [str(k) for k in raw_params]
-        elif isinstance(raw_params, list):
-            for item in raw_params:
-                if isinstance(item, dict) and item.get("name"):
-                    names.append(str(item["name"]))
-        return names
-
-    def _tool_script_from_code(self, code: str, params_to_bind: list[str]) -> str:
-        normalized = _normalize_code(code)
         try:
-            tree = ast.parse(normalized)
-        except SyntaxError:
-            script = normalized.strip()
-            if script and "response" not in script:
-                script += "\n\nresponse = None"
-            return script
+            run_fn = cls.run
+        except AttributeError:
+            return getattr(cls, "__doc__", "") or ""
 
-        fn_nodes = [
-            node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        ]
-        run_node = next((node for node in fn_nodes if node.name == "run"), None)
-        helper_nodes = [
-            node
-            for node in fn_nodes
-            if node is not run_node
-            and not (node.name.startswith("__") and node.name.endswith("__"))
-        ]
-        helper_names = [node.name for node in helper_nodes]
-        helper_sources = [
-            src
-            for src in (self._tool_helper_source(node, normalized) for node in helper_nodes)
-            if src
-        ]
+        try:
+            source = inspect.getsource(run_fn)
+        except (OSError, TypeError):  # pragma: no cover - best effort
+            return getattr(cls, "__doc__", "") or ""
 
-        if run_node is None:
-            helper_block = self._replace_self_calls(
-                "\n\n".join(helper_sources), helper_names
-            ).strip()
-            if helper_block and "response" not in helper_block:
-                helper_block += "\n\nresponse = None"
-            return helper_block
+        helper_sources: list[str] = []
+        helper_names: list[str] = []
+        try:
+            class_source = inspect.getsource(cls)
+            class_source = _normalize_code(class_source)
+            tree = ast.parse(class_source)
+            class_def = next(
+                (
+                    node
+                    for node in tree.body
+                    if isinstance(node, ast.ClassDef) and node.name == cls.__name__
+                ),
+                None,
+            )
+            if class_def is not None:
+                for node in class_def.body:
+                    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        continue
+                    name = node.name
+                    if name == "run" or (name.startswith("__") and name.endswith("__")):
+                        continue
+                    helper_names.append(name)
+                    helper_sources.append(self._tool_helper_source(node))
+        except Exception:  # pragma: no cover - best effort
+            helper_sources = []
+            helper_names = []
 
-        if not params_to_bind:
-            params_to_bind = self._tool_param_names_from_run_node(run_node)
+        source = _normalize_code(source)
+        lines = source.splitlines()
+        # Strip decorator lines if any (not expected but safe).
+        while lines and lines[0].lstrip().startswith("@"):
+            lines.pop(0)
 
-        run_body = self._run_body_source(run_node, normalized)
-        run_body = self._replace_self_calls(run_body, helper_names)
+        # Find def line
+        def_idx = None
+        for i, line in enumerate(lines):
+            if line.lstrip().startswith("def "):
+                def_idx = i
+                break
+        if def_idx is None:
+            return textwrap.dedent(source)
+
+        body = "\n".join(lines[def_idx + 1 :])
+        dedented = textwrap.dedent(body)
+        dedented = self._replace_self_calls(dedented, helper_names)
+
+        # Detect parameters to bind from signature (excluding runtime args)
+        params_to_bind = []
+        try:
+            sig = inspect.signature(run_fn)
+            for name, _param in sig.parameters.items():
+                if name in {"self", "chat", "data", "secrets", "log", "params"}:
+                    continue
+                params_to_bind.append(name)
+        except Exception:
+            params_to_bind = []
 
         result_lines: list[str] = []
+        # Prepend param extraction
         for p in params_to_bind:
             result_lines.append(f"{p} = params.get('{p}') if params else None")
-        for line in run_body.splitlines():
+
+        for line in dedented.splitlines():
             stripped = line.lstrip()
             indent = line[: len(line) - len(stripped)]
             if stripped.startswith("return "):
@@ -1047,105 +1259,10 @@ class Command(BaseCommand):
 
         script_parts: list[str] = []
         if helper_sources:
-            helper_block = self._replace_self_calls("\n\n".join(helper_sources), helper_names)
-            script_parts.append(helper_block.strip())
+            helper_block = "\n\n".join(helper_sources)
+            helper_block = self._replace_self_calls(helper_block, helper_names)
+            script_parts.append(helper_block)
         if run_script:
             script_parts.append(run_script)
-        return "\n\n".join(part for part in script_parts if part).strip()
 
-    def _tool_param_names_from_run_node(self, run_node: ast.AST) -> list[str]:
-        if not isinstance(run_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            return []
-        ignore = {"self", "chat", "data", "secrets", "log", "params"}
-        names: list[str] = []
-        arg_nodes = (
-            list(run_node.args.posonlyargs)
-            + list(run_node.args.args)
-            + list(run_node.args.kwonlyargs)
-        )
-        for arg in arg_nodes:
-            if arg.arg in ignore or arg.arg in names:
-                continue
-            names.append(arg.arg)
-        return names
-
-    def _node_source(self, node: ast.AST, source: str) -> str:
-        segment = ast.get_source_segment(source, node)
-        if segment:
-            return segment
-        try:
-            return ast.unparse(node)
-        except Exception:
-            return ""
-
-    def _relative_node_source(self, node: ast.AST, source: str) -> str:
-        segment = self._node_source(node, source)
-        if not segment:
-            return ""
-        lines = segment.splitlines()
-        if len(lines) <= 1:
-            return segment
-        indent = max(getattr(node, "col_offset", 0), 0)
-        normalized = [lines[0]]
-        for line in lines[1:]:
-            if line.startswith(" " * indent):
-                normalized.append(line[indent:])
-            else:
-                normalized.append(line.lstrip() if line.strip() else "")
-        return "\n".join(normalized)
-
-    def _function_body_source(self, node: ast.AST, source: str) -> str:
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            return ""
-        body_parts = [
-            part
-            for part in (self._relative_node_source(stmt, source) for stmt in node.body)
-            if part
-        ]
-        return _normalize_code("\n".join(body_parts))
-
-    def _source_offset(self, source: str, node: ast.AST, target: ast.AST) -> int:
-        if (
-            not hasattr(node, "lineno")
-            or not hasattr(target, "lineno")
-            or not hasattr(target, "col_offset")
-        ):
-            return len(source)
-        lines = source.splitlines(keepends=True)
-        line_index = max(target.lineno - node.lineno, 0)
-        if line_index >= len(lines):
-            return len(source)
-        offset = sum(len(line) for line in lines[:line_index])
-        if line_index == 0:
-            col = max(target.col_offset - getattr(node, "col_offset", 0), 0)
-        else:
-            col = max(target.col_offset, 0)
-        return cast(int, min(offset + col, len(source)))
-
-    def _strip_first_self_param(self, signature: str) -> str:
-        updated = re.sub(r"(\(\s*)self(\s*,\s*)", r"\1", signature, count=1)
-        return re.sub(r"(\(\s*)self(\s*\))", r"\1\2", updated, count=1)
-
-    def _run_body_source(self, run_node: ast.AST, source: str) -> str:
-        return self._function_body_source(run_node, source)
-
-    def _tool_helper_source(self, node: ast.AST, source: str) -> str:
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            return ""
-        helper_src = self._node_source(node, source)
-        if not helper_src:
-            return ""
-        body_source = self._function_body_source(node, source)
-        header_source = helper_src
-        if node.body:
-            header_source = helper_src[: self._source_offset(helper_src, node, node.body[0])]
-        header_source = self._strip_first_self_param(header_source.rstrip())
-        if not body_source:
-            return _normalize_code(header_source)
-        return _normalize_code(f"{header_source}\n{textwrap.indent(body_source, '    ')}")
-
-    def _replace_self_calls(self, code: str, helper_names: list[str]) -> str:
-        rewritten = code
-        for name in helper_names:
-            rewritten = re.sub(rf"\bself\.{name}\b", name, rewritten)
-        return rewritten
+        return "\n\n".join(script_parts).strip()

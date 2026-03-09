@@ -4,7 +4,10 @@ Tests for tool code transformation during migrations.
 
 import ast
 
+from pathlib import Path
+
 from cogsol.management.commands.migrate import Command
+from cogsol.tools import BaseMCPTool, BaseTool
 
 
 class TestToolScriptFromState:

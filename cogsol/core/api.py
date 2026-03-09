@@ -404,6 +404,51 @@ class CogSolClient:
         return self.request("GET", f"/tools/retrievals/{tool_id}/")
 
     # =========================================================================
+    # MCP Servers & Tools
+    # =========================================================================
+
+    def list_mcp_servers(self) -> Any:
+        """List all MCP servers."""
+        return self.request("GET", "/mcp-servers/")
+
+    def create_mcp_server(self, payload: dict[str, Any]) -> int:
+        """Create an MCP server and return its id."""
+        data = self.request("POST", "/mcp-servers/", payload)
+        return self._ensure_id(data, "MCPServer")
+
+    def upsert_mcp_server(self, *, remote_id: int | None, payload: dict[str, Any]) -> int:
+        """Create or update an MCP server."""
+        if remote_id:
+            data = self.request("PUT", f"/mcp-servers/{remote_id}/", payload)
+        else:
+            data = self.request("POST", "/mcp-servers/", payload)
+        return self._ensure_id(data, "MCPServer")
+
+    def delete_mcp_server(self, server_id: int) -> None:
+        """Delete an MCP server by id."""
+        self.request("DELETE", f"/mcp-servers/{server_id}/")
+
+    def list_mcp_server_tools(self, server_id: int) -> Any:
+        """List tools currently configured on an MCP server."""
+        return self.request("GET", f"/mcp-servers/{server_id}/tools/")
+
+    def sync_mcp_server_tools(self, server_id: int, selected_tools: list[str]) -> Any:
+        """Sync (create/update) the selected tools on an MCP server.
+
+        The backend uses a POST with ``{"selected_tools": [...]}``
+        to reconcile the tool set.
+        """
+        return self.request(
+            "POST",
+            f"/mcp-servers/{server_id}/tools/",
+            {"selected_tools": selected_tools},
+        )
+
+    def delete_mcp_tool(self, tool_id: int) -> None:
+        """Delete an MCP tool by id."""
+        self.request("DELETE", f"/mcp-tools/{tool_id}/")
+
+    # =========================================================================
     # Content API - Nodes (Topics)
     # =========================================================================
 
