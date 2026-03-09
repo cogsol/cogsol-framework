@@ -617,6 +617,9 @@ Upload documents to your topic:
 # Ingest a directory of documents
 python manage.py ingest product_docs ./docs/
 
+# Ingest into a nested child topic (parent/child path)
+python manage.py ingest product_docs/tutorials ./docs/tutorials/*.pdf
+
 # Preview first (dry run)
 python manage.py ingest product_docs ./docs/ --dry-run
 ```

@@ -587,6 +587,8 @@ python manage.py ingest <topic> <files...> [options]
 | `topic` | Yes | - | Topic path (e.g., `docs` or `parent/child`) |
 | `files` | Yes | - | Files, directories, or glob patterns |
 
+Use slash-separated paths for nested topics during ingestion (for example: `documentation/tutorials`).
+
 #### Options
 
 | Option | Default | Description |
@@ -636,6 +638,9 @@ python manage.py ingest documentation ./docs/ --ingestion-config high_quality
 ```bash
 # Ingest all PDFs in a directory
 python manage.py ingest documentation ./docs/*.pdf
+
+# Ingest into a child topic using parent/child path
+python manage.py ingest documentation/tutorials ./docs/tutorials/*.pdf
 
 # Ingest an entire directory recursively
 python manage.py ingest documentation ./docs/

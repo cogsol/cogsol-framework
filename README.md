@@ -162,6 +162,9 @@ python manage.py migrate data
 
 # Ingest documents into a topic
 python manage.py ingest documentation ./docs/*.pdf
+
+# Ingest documents into a nested topic
+python manage.py ingest documentation/tutorials ./docs/tutorials/*.pdf
 ```
 
 ---
@@ -294,6 +297,10 @@ python manage.py ingest <topic> <files...> [options]
 - `topic`: Topic path (e.g., `documentation` or `parent/child/topic`)
 - `files`: Files, directories, or glob patterns to ingest
 
+Use slash-separated paths for nested topics. For example, if you created `tutorials` under
+`documentation` with `starttopic tutorials --path documentation`, ingest into it with
+`documentation/tutorials`.
+
 **Options:**
 - `--doc-type`: Document type (defaults to `Text Document`)
 - `--ingestion-config`: Name of an ingestion config from `data/ingestion.py`
@@ -311,6 +318,9 @@ python manage.py ingest <topic> <files...> [options]
 ```bash
 # Ingest PDF files
 python manage.py ingest documentation ./docs/*.pdf
+
+# Ingest into a child topic
+python manage.py ingest documentation/tutorials ./docs/tutorials/*.pdf
 
 # Ingest with custom config
 python manage.py ingest documentation ./docs/ --ingestion-config HighQuality
