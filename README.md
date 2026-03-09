@@ -149,6 +149,8 @@ python manage.py chat --agent SalesAgent
 
 ### 7. Add Document Topics (Optional)
 
+`documentation` in the examples below is only a sample topic name. You can use any topic name that fits your use case.
+
 ```bash
 # Create a topic for documents
 python manage.py starttopic documentation
@@ -274,6 +276,7 @@ python manage.py starttopic <topic-name> [--path <parent-path>]
 
 **Examples:**
 ```bash
+# `documentation` is just an example topic name.
 # Create a root topic
 python manage.py starttopic documentation
 
