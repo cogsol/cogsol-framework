@@ -58,17 +58,19 @@ git remote add upstream https://github.com/Pyxis-Cognitive-Solutions/cogsol-fram
 
 ```bash
 # Create a virtual environment
-python -m venv venv
+python -m venv .venv
 
 # Activate it
 # Windows:
-venv\Scripts\activate
+.venv\Scripts\activate
 # macOS/Linux:
-source venv/bin/activate
+source .venv/bin/activate
 
 # Install with development dependencies
 pip install -e ".[dev]"
 ```
+
+Using a local `.venv` keeps dependencies isolated to this repository and avoids global package conflicts.
 
 ### Verify Installation
 

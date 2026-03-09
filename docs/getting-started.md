@@ -45,11 +45,22 @@ python --version
 # Option A: Install from source
 git clone <repository-url> cogsol-framework
 cd cogsol-framework/framework
+
+# Create and activate a virtual environment
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# macOS/Linux:
+source .venv/bin/activate
+
+# Install dependencies
 pip install -e .
 
 # Option B: Install from PyPI (when available)
 pip install cogsol
 ```
+
+Using a local `.venv` keeps project dependencies isolated and prevents conflicts with global Python packages.
 
 ### Step 2: Verify Installation
 
