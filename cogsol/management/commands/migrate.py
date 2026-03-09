@@ -953,7 +953,7 @@ class Command(BaseCommand):
         ]
         helper_names = [node.name for node in helper_nodes]
         helper_sources = [
-            src for src in (self._tool_helper_source(node) for node in helper_nodes) if src
+            src for src in (self._tool_helper_source(node, normalized) for node in helper_nodes) if src
         ]
 
         if run_node is None:
@@ -967,8 +967,8 @@ class Command(BaseCommand):
         if not params_to_bind:
             params_to_bind = self._tool_param_names_from_run_node(run_node)
 
-        run_body = "\n".join(ast.unparse(stmt) for stmt in run_node.body)
-        run_body = self._replace_self_calls(_normalize_code(run_body), helper_names)
+        run_body = self._run_body_source(run_node, normalized)
+        run_body = self._replace_self_calls(run_body, helper_names)
 
         result_lines: list[str] = []
         for p in params_to_bind:
@@ -1012,16 +1012,33 @@ class Command(BaseCommand):
             names.append(arg.arg)
         return names
 
-    def _tool_helper_source(self, node: ast.AST) -> str:
+    def _run_body_source(self, run_node: ast.AST, source: str) -> str:
+        if not isinstance(run_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return ""
+        run_src = ast.get_source_segment(source, run_node) or ""
+        if not run_src:
+            return ""
+        run_lines = run_src.splitlines()
+        if len(run_lines) <= 1:
+            return ""
+        return _normalize_code("\n".join(run_lines[1:]))
+
+    def _tool_helper_source(self, node: ast.AST, source: str) -> str:
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             return ""
-        fn_node = ast.fix_missing_locations(ast.copy_location(node, node))
-        fn_node.decorator_list = []
-        if fn_node.args.posonlyargs and fn_node.args.posonlyargs[0].arg == "self":
-            fn_node.args.posonlyargs = fn_node.args.posonlyargs[1:]
-        if fn_node.args.args and fn_node.args.args[0].arg == "self":
-            fn_node.args.args = fn_node.args.args[1:]
-        return ast.unparse(fn_node).strip()
+        helper_src = ast.get_source_segment(source, node) or ""
+        if not helper_src:
+            return ""
+        lines = helper_src.splitlines()
+        while lines and lines[0].lstrip().startswith("@"):
+            lines.pop(0)
+        if not lines:
+            return ""
+        def_line = lines[0]
+        def_line = re.sub(r"^(\s*(?:async\s+)?def\s+\w+\s*\(\s*)self\s*,\s*", r"\1", def_line)
+        def_line = re.sub(r"^(\s*(?:async\s+)?def\s+\w+\s*\(\s*)self\s*(\)\s*:)", r"\1\2", def_line)
+        lines[0] = def_line
+        return _normalize_code("\n".join(lines))
 
     def _replace_self_calls(self, code: str, helper_names: list[str]) -> str:
         rewritten = code

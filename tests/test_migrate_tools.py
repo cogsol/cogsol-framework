@@ -2,6 +2,8 @@
 Tests for tool code transformation during migrations.
 """
 
+import ast
+
 from cogsol.management.commands.migrate import Command
 
 
@@ -48,3 +50,22 @@ class TestToolScriptFromState:
         assert payload["show_tool_message"] is True
         assert "text = params.get('text')" in payload["code"]
         assert "response = text" in payload["code"]
+
+    def test_preserves_fstring_quotes_in_run_body(self) -> None:
+        fields = {
+            "__code__": (
+                "def run(self, log=None):\n"
+                "    if log is not None:\n"
+                "        log.append(f\"status={result.get('status_code')} error={result.get('error')}\")\n"
+                "    return {'ok': True}\n"
+            ),
+            "parameters": {},
+        }
+
+        script = Command()._tool_script_from_state(fields)
+
+        assert (
+            'log.append(f"status={result.get(\'status_code\')} error={result.get(\'error\')}")'
+            in script
+        )
+        ast.parse(script)
