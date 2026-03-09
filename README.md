@@ -453,7 +453,7 @@ from cogsol.tools import BaseRetrievalTool
 # class ProductDocsSearch(BaseRetrievalTool):
 #     name = "product_docs_search"
 #     description = "Search the product documentation."
-#     retrieval = ProductDocsRetrieval
+#     retrieval = ProductDocsRetrieval()
 #     parameters = [
 #         {"name": "question", "description": "Search query", "type": "string", "required": True}
 #     ]
