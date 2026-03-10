@@ -65,7 +65,7 @@ class TestToolScriptFromState:
         script = Command()._tool_script_from_state(fields)
 
         assert (
-            'log.append(f"status={result.get(\'status_code\')} error={result.get(\'error\')}")'
+            "log.append(f\"status={result.get('status_code')} error={result.get('error')}\")"
             in script
         )
         ast.parse(script)
@@ -79,8 +79,8 @@ class TestToolScriptFromState:
                 "    data=None,\n"
                 "    secrets=None,\n"
                 "    log=None,\n"
-                '    latitude: float = 0.0,\n'
-                '    longitude: float = 0.0,\n'
+                "    latitude: float = 0.0,\n"
+                "    longitude: float = 0.0,\n"
                 '    start_date: str = "",\n'
                 '    end_date: str = "",\n'
                 "):\n"
@@ -115,7 +115,7 @@ class TestToolScriptFromState:
                 ") -> str:\n"
                 '    return f"{text}{suffix}"\n\n'
                 'def run(self, text: str = "") -> str:\n'
-                '    return self.helper(text=text)\n'
+                "    return self.helper(text=text)\n"
             ),
             "parameters": {
                 "text": {"description": "Text", "type": "string", "required": True},

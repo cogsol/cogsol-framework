@@ -7,7 +7,7 @@ import os
 import re
 import textwrap
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from cogsol.agents import genconfigs
 from cogsol.content import BaseRetrieval
@@ -1008,7 +1008,9 @@ class Command(BaseCommand):
         ]
         helper_names = [node.name for node in helper_nodes]
         helper_sources = [
-            src for src in (self._tool_helper_source(node, normalized) for node in helper_nodes) if src
+            src
+            for src in (self._tool_helper_source(node, normalized) for node in helper_nodes)
+            if src
         ]
 
         if run_node is None:
@@ -1103,20 +1105,22 @@ class Command(BaseCommand):
         return _normalize_code("\n".join(body_parts))
 
     def _source_offset(self, source: str, node: ast.AST, target: ast.AST) -> int:
-        if not hasattr(node, "lineno") or not hasattr(target, "lineno") or not hasattr(
-            target, "col_offset"
+        if (
+            not hasattr(node, "lineno")
+            or not hasattr(target, "lineno")
+            or not hasattr(target, "col_offset")
         ):
             return len(source)
         lines = source.splitlines(keepends=True)
-        line_index = max(getattr(target, "lineno") - getattr(node, "lineno"), 0)
+        line_index = max(target.lineno - node.lineno, 0)
         if line_index >= len(lines):
             return len(source)
         offset = sum(len(line) for line in lines[:line_index])
         if line_index == 0:
-            col = max(getattr(target, "col_offset") - getattr(node, "col_offset", 0), 0)
+            col = max(target.col_offset - getattr(node, "col_offset", 0), 0)
         else:
-            col = max(getattr(target, "col_offset"), 0)
-        return min(offset + col, len(source))
+            col = max(target.col_offset, 0)
+        return cast(int, min(offset + col, len(source)))
 
     def _strip_first_self_param(self, signature: str) -> str:
         updated = re.sub(r"(\(\s*)self(\s*,\s*)", r"\1", signature, count=1)
