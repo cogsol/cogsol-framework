@@ -4,6 +4,7 @@ Utilities to import project modules and collect agent definitions.
 
 from __future__ import annotations
 
+import ast
 import importlib
 import inspect
 import sys
@@ -222,6 +223,62 @@ def _extract_tool_params(tool_cls: type[BaseTool]) -> dict[str, Any]:
     return params
 
 
+def _extract_tool_code(tool_cls: type[BaseTool]) -> str:
+    """
+    Build a stable code snapshot for migration diffing.
+
+    Prefer all non-dunder methods from the class body so helper method changes
+    are tracked by makemigrations. Fallback to run() source when needed.
+    """
+
+    run_source = ""
+    try:
+        run_source = _normalize_code(inspect.getsource(tool_cls.run))
+    except Exception:
+        run_source = ""
+
+    try:
+        raw_class_source = inspect.getsource(tool_cls)
+        normalized_class_source = _normalize_code(raw_class_source)
+    except Exception:
+        return run_source
+
+    try:
+        tree = ast.parse(normalized_class_source)
+    except SyntaxError:
+        return run_source
+
+    class_node = next(
+        (
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == tool_cls.__name__
+        ),
+        None,
+    )
+    if class_node is None:
+        return run_source
+
+    helper_methods: list[str] = []
+    for node in class_node.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name == "run":
+            continue
+        if node.name.startswith("__") and node.name.endswith("__"):
+            continue
+        source = ast.get_source_segment(normalized_class_source, node)
+        if not source:
+            source = ast.unparse(node)
+        helper_methods.append(_normalize_code(source))
+
+    if not helper_methods:
+        return run_source
+
+    code_parts = helper_methods + ([run_source] if run_source else [])
+    return cast(str, _normalize_code("\n\n".join(code_parts)))
+
+
 def collect_definitions(
     project_path: Path, app_name: str = "agents"
 ) -> dict[str, dict[str, dict[str, Any]]]:
@@ -260,13 +317,7 @@ def collect_definitions(
                 if not current_name or current_name == obj.__name__:
                     fields["name"] = normalized
                 fields["parameters"] = _extract_tool_params(obj)
-                code_repr = ""
-                try:
-                    run_fn = obj.run
-                    code_repr = textwrap.dedent(inspect.getsource(run_fn))
-                except Exception:
-                    code_repr = ""
-                fields["__code__"] = _normalize_code(code_repr)
+                fields["__code__"] = _extract_tool_code(obj)
                 definitions["tools"][normalized] = {"fields": fields, "meta": meta}
     except ModuleNotFoundError as exc:
         if not _ignore_missing_module(exc, f"{app_name}.tools"):
