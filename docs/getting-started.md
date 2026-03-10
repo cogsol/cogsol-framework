@@ -44,7 +44,7 @@ python --version
 ```bash
 # Option A: Install from source
 git clone <repository-url> cogsol-framework
-cd cogsol-framework/framework
+cd cogsol-framework
 
 # Create and activate a virtual environment
 python -m venv .venv

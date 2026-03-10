@@ -54,8 +54,8 @@ CogSol is designed to provide a Django-like development experience for building 
 ### From Source
 
 ```bash
-git clone <repository-url>
-cd framework
+git clone <repository-url> cogsol-framework
+cd cogsol-framework
 pip install -e .
 ```
 
