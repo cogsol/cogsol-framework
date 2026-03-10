@@ -20,7 +20,10 @@ class {class_name}(BaseAgent):
     max_msg_length = 2048
     max_consecutive_tool_calls = 3
     temperature = 0.3
-
+    # initial_message = "Hi! how can I help you?"
+    # forced_termination_message = "We need to end this chat."
+    # no_information_message = "I don't have that information."
+    
     class Meta:
         name = "{class_name}"
         chat_name = "{class_name}"
