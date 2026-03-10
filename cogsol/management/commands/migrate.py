@@ -1067,33 +1067,78 @@ class Command(BaseCommand):
             names.append(arg.arg)
         return names
 
+    def _node_source(self, node: ast.AST, source: str) -> str:
+        segment = ast.get_source_segment(source, node)
+        if segment:
+            return segment
+        try:
+            return ast.unparse(node)
+        except Exception:
+            return ""
+
+    def _relative_node_source(self, node: ast.AST, source: str) -> str:
+        segment = self._node_source(node, source)
+        if not segment:
+            return ""
+        lines = segment.splitlines()
+        if len(lines) <= 1:
+            return segment
+        indent = max(getattr(node, "col_offset", 0), 0)
+        normalized = [lines[0]]
+        for line in lines[1:]:
+            if line.startswith(" " * indent):
+                normalized.append(line[indent:])
+            else:
+                normalized.append(line.lstrip() if line.strip() else "")
+        return "\n".join(normalized)
+
+    def _function_body_source(self, node: ast.AST, source: str) -> str:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return ""
+        body_parts = [
+            part
+            for part in (self._relative_node_source(stmt, source) for stmt in node.body)
+            if part
+        ]
+        return _normalize_code("\n".join(body_parts))
+
+    def _source_offset(self, source: str, node: ast.AST, target: ast.AST) -> int:
+        if not hasattr(node, "lineno") or not hasattr(target, "lineno") or not hasattr(
+            target, "col_offset"
+        ):
+            return len(source)
+        lines = source.splitlines(keepends=True)
+        line_index = max(getattr(target, "lineno") - getattr(node, "lineno"), 0)
+        if line_index >= len(lines):
+            return len(source)
+        offset = sum(len(line) for line in lines[:line_index])
+        if line_index == 0:
+            col = max(getattr(target, "col_offset") - getattr(node, "col_offset", 0), 0)
+        else:
+            col = max(getattr(target, "col_offset"), 0)
+        return min(offset + col, len(source))
+
+    def _strip_first_self_param(self, signature: str) -> str:
+        updated = re.sub(r"(\(\s*)self(\s*,\s*)", r"\1", signature, count=1)
+        return re.sub(r"(\(\s*)self(\s*\))", r"\1\2", updated, count=1)
+
     def _run_body_source(self, run_node: ast.AST, source: str) -> str:
-        if not isinstance(run_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            return ""
-        run_src = ast.get_source_segment(source, run_node) or ""
-        if not run_src:
-            return ""
-        run_lines = run_src.splitlines()
-        if len(run_lines) <= 1:
-            return ""
-        return _normalize_code("\n".join(run_lines[1:]))
+        return self._function_body_source(run_node, source)
 
     def _tool_helper_source(self, node: ast.AST, source: str) -> str:
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             return ""
-        helper_src = ast.get_source_segment(source, node) or ""
+        helper_src = self._node_source(node, source)
         if not helper_src:
             return ""
-        lines = helper_src.splitlines()
-        while lines and lines[0].lstrip().startswith("@"):
-            lines.pop(0)
-        if not lines:
-            return ""
-        def_line = lines[0]
-        def_line = re.sub(r"^(\s*(?:async\s+)?def\s+\w+\s*\(\s*)self\s*,\s*", r"\1", def_line)
-        def_line = re.sub(r"^(\s*(?:async\s+)?def\s+\w+\s*\(\s*)self\s*(\)\s*:)", r"\1\2", def_line)
-        lines[0] = def_line
-        return _normalize_code("\n".join(lines))
+        body_source = self._function_body_source(node, source)
+        header_source = helper_src
+        if node.body:
+            header_source = helper_src[: self._source_offset(helper_src, node, node.body[0])]
+        header_source = self._strip_first_self_param(header_source.rstrip())
+        if not body_source:
+            return _normalize_code(header_source)
+        return _normalize_code(f"{header_source}\n{textwrap.indent(body_source, '    ')}")
 
     def _replace_self_calls(self, code: str, helper_names: list[str]) -> str:
         rewritten = code

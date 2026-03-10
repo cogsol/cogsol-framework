@@ -69,3 +69,65 @@ class TestToolScriptFromState:
             in script
         )
         ast.parse(script)
+
+    def test_preserves_multiline_run_signature(self) -> None:
+        fields = {
+            "__code__": (
+                "def run(\n"
+                "    self,\n"
+                "    chat=None,\n"
+                "    data=None,\n"
+                "    secrets=None,\n"
+                "    log=None,\n"
+                '    latitude: float = 0.0,\n'
+                '    longitude: float = 0.0,\n'
+                '    start_date: str = "",\n'
+                '    end_date: str = "",\n'
+                "):\n"
+                "    if log is not None:\n"
+                '        log.append(f"lat={latitude} start={start_date}")\n'
+                '    return {"ok": True}\n'
+            ),
+            "parameters": {
+                "latitude": {"description": "Latitude", "type": "number", "required": True},
+                "longitude": {"description": "Longitude", "type": "number", "required": True},
+                "start_date": {"description": "Start", "type": "string", "required": True},
+                "end_date": {"description": "End", "type": "string", "required": True},
+            },
+        }
+
+        script = Command()._tool_script_from_state(fields)
+
+        assert "latitude = params.get('latitude')" in script
+        assert "longitude = params.get('longitude')" in script
+        assert 'log.append(f"lat={latitude} start={start_date}")' in script
+        assert "chat=None" not in script
+        assert "latitude: float = 0.0" not in script
+        ast.parse(script)
+
+    def test_preserves_multiline_helper_signature(self) -> None:
+        fields = {
+            "__code__": (
+                "def helper(\n"
+                "    self,\n"
+                '    text: str = "",\n'
+                '    suffix: str = "!",\n'
+                ") -> str:\n"
+                '    return f"{text}{suffix}"\n\n'
+                'def run(self, text: str = "") -> str:\n'
+                '    return self.helper(text=text)\n'
+            ),
+            "parameters": {
+                "text": {"description": "Text", "type": "string", "required": True},
+            },
+        }
+
+        script = Command()._tool_script_from_state(fields)
+
+        assert "def helper(" in script
+        assert "self," not in script
+        assert 'suffix: str = "!"' in script
+        assert 'return f"{text}{suffix}"' in script
+        assert "response = helper(text=text)" in script
+        assert "self.helper" not in script
+        ast.parse(script)
