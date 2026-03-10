@@ -594,7 +594,7 @@ from data.retrievals import ProductDocsRetrieval
 class ProductDocsSearch(BaseRetrievalTool):
     name = "search_product_docs"
     description = "Search product documentation for answers"
-    retrieval = ProductDocsRetrieval
+    retrieval = ProductDocsRetrieval()
     parameters = []
 ```
 
