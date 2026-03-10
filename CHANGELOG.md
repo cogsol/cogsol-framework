@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 - Environment variable and authentication docs updated to use `COGSOL_API_KEY` and optional Azure AD B2C credentials.
 - Removed outdated "no external dependencies" statements from README.
+- Setup guides now explicitly document creating and activating a local `.venv` before installing dependencies.
 
 ---
 
