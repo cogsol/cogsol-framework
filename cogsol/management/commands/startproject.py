@@ -62,7 +62,7 @@ from cogsol.tools import BaseRetrievalTool
 #
 #     name = "example_search"
 #     description = "Search over the product_docs retrieval."
-#     retrieval = ProductDocsRetrieval
+#     retrieval = ProductDocsRetrieval()
 #     parameters = []
 """
 

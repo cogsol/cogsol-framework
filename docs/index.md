@@ -169,7 +169,7 @@ from data.retrievals import ProductDocsRetrieval
 class DocsSearch(BaseRetrievalTool):
     name = "docs_search"
     description = "Search product documentation"
-    retrieval = ProductDocsRetrieval
+    retrieval = ProductDocsRetrieval()
 ```
 
 ### Topics & Documents

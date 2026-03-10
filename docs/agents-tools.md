@@ -433,7 +433,7 @@ from data.retrievals import ProductDocsRetrieval
 class DocsSearch(BaseRetrievalTool):
     name = "docs_search"
     description = "Search product documentation for answers"
-    retrieval = ProductDocsRetrieval
+    retrieval = ProductDocsRetrieval()
     parameters = [
         {"name": "question", "description": "Search query", "type": "string", "required": True}
     ]
@@ -475,7 +475,7 @@ from data.retrievals import ProductDocsRetrieval
 class ProductDocsSearch(BaseRetrievalTool):
     name = "product_docs_search"
     description = "Search the product documentation"
-    retrieval = ProductDocsRetrieval
+    retrieval = ProductDocsRetrieval()
 ```
 
 #### Using in Agents
@@ -771,7 +771,7 @@ from data.retrievals import KnowledgeBaseRetrieval
 class KnowledgeBaseSearch(BaseRetrievalTool):
     name = "search_knowledge_base"
     description = "Search the company knowledge base"
-    retrieval = KnowledgeBaseRetrieval
+    retrieval = KnowledgeBaseRetrieval()
 ```
 
 ### Content Workflow
