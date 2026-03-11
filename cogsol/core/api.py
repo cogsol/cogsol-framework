@@ -134,7 +134,11 @@ class CogSolClient:
         client_secret = os.environ.get("COGSOL_AUTH_SECRET")
 
         if not client_secret:
-            raise CogSolAPIError("Missing authentication configuration: COGSOL_AUTH_SECRET")
+            raise CogSolAPIError(
+                "Missing authentication configuration: COGSOL_AUTH_SECRET is not set.\n"
+                "To obtain your credentials, visit https://onboarding.cogsol.ai\n"
+                "and configure the service API key in the implantation portal."
+            )
 
         authority = "https://pyxiscognitivesweden.b2clogin.com/pyxiscognitivesweden.onmicrosoft.com/B2C_1A_CS_signup_signin_Sweden_MigrationOIDC"
         scopes = [f"https://pyxiscognitivesweden.onmicrosoft.com/{client_id}/.default"]

@@ -118,11 +118,13 @@ agents/salesagent/
 
 ### 3. Configure Environment
 
-Copy `.env.example` to `.env` and set your API credentials:
+To use CogSol you need API credentials. Visit **[https://onboarding.cogsol.ai](https://onboarding.cogsol.ai)** to obtain your credentials. Make sure to also configure the service API key in the implantation portal before running any commands.
+
+Copy `.env.example` to `.env` and fill in the credentials obtained from the portal:
 
 ```env
 COGSOL_ENV=development
-COGSOL_API_KEY=your-api-key
+COGSOL_API_KEY=your-api-key  # Obtain from https://onboarding.cogsol.ai
 # Optional: Azure AD B2C client credentials for JWT
 # If not provided, the Auth will be skipped
 COGSOL_AUTH_CLIENT_ID=your-client-id
@@ -666,17 +668,14 @@ from cogsol.content import BaseRetrieval, ReorderingStrategy
 
 ### Environment Variables
 
+Credentials are obtained from the CogSol onboarding portal at **[https://onboarding.cogsol.ai](https://onboarding.cogsol.ai)**. Configure your service API key there before running migrations or using the CLI.
+
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `COGSOL_API_KEY` | Yes | API Key authentication |
+| `COGSOL_API_KEY` | Yes | Service API key — obtain from the portal at https://onboarding.cogsol.ai |
 | `COGSOL_ENV` | No | Environment name (e.g., `local`, `development`, `production`) |
-| `COGSOL_AUTH_CLIENT_ID` | No | Client Id provided for adminitrators |
-| `COGSOL_AUTH_SECRET` | No | Auth Secret provided for adminitrators |
-
-# Optional: Azure AD B2C client credentials for JWT\
-# If not provided, the Auth will be skipped
-COGSOL_AUTH_CLIENT_ID=your-client-id
-COGSOL_AUTH_SECRET=your-client-secret
+| `COGSOL_AUTH_CLIENT_ID` | No | Client Id provided for administrators |
+| `COGSOL_AUTH_SECRET` | No | Auth secret provided for administrators |
 
 ### Project Settings (`settings.py`)
 
