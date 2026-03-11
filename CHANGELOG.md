@@ -9,12 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.2.1] - 2026-03-11
+
 ### Added
 - Optional Azure AD B2C client-credentials authentication in `CogSolClient` (`COGSOL_AUTH_CLIENT_ID`, `COGSOL_AUTH_SECRET`) with automatic bearer token acquisition.
 
 ### Changed
 - API key configuration standardized on `COGSOL_API_KEY` (replacing `COGSOL_API_TOKEN`) across framework helpers and CLI commands.
 - `CogSolClient` now sends `Authorization: Bearer <token>` when configured and retries once on `401` after refreshing credentials.
+- API base URL resolution is now centralized through shared helpers with support for `COGSOL_ENV`, `COGSOL_API_BASE`, and `COGSOL_CONTENT_API_BASE`.
+- When auth credentials are not configured, framework commands and clients fall back to legacy cognitive/content API base URLs.
+- `startagent` now validates derived slugs and class names from the provided agent name, and generated templates no longer append a redundant `Chat` suffix to `chat_name`.
 - Tool parameter sync now preserves `items` metadata for array-type parameters.
 - `startproject` template `.env.example` now includes API key and optional auth credential placeholders.
 - Runtime dependencies now include `msal` and `PyJWT`.
@@ -22,21 +29,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Migration operation ordering for agents app dependencies to avoid first-run failures (agent entities are created before lessons/FAQs/fixed responses).
 - `startproject` scaffold now includes an active `ExampleTool` implementation to match default project flow.
+- Migration tool payload sync now preserves configurable flags such as `show_tool_message`, `show_assistant_message`, and `edit_available` instead of hardcoding them.
+- Migration finalization now performs rollback of partially created API objects when sync fails.
+- Tool migration sync now reads code from migration state/files more reliably, preserving helper methods, double quotes, and multiline helper/run signatures.
 - Chat banner alignment/output rendering in terminal sessions.
 
 ### Documentation
 - Environment variable and authentication docs updated to use `COGSOL_API_KEY` and optional Azure AD B2C credentials.
 - Removed outdated "no external dependencies" statements from README.
-<<<<<<< codex/create-pr-for-issue-17
 - Clarified in README topic examples that `documentation` is only a sample topic name and not required.
-=======
 - Retrieval-tool examples now instantiate retrieval definitions (e.g., `ProductDocsRetrieval()`) to avoid runtime confusion from class references.
 - Setup guides now explicitly document creating and activating a local `.venv` before installing dependencies.
->>>>>>> main
+- Installation instructions now make the clone directory explicit in setup examples.
 
 ---
 
-## [0.2.0] - 2026-01-09
+## [0.2.0] - 2026-01-26
 
 ### Added
 
@@ -158,8 +166,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
-| Unreleased | - | Auth model updates, migration ordering fixes, packaging updates |
-| 0.2.0 | 2026-01-09 | Content API integration, data app, retrieval tools |
+| Unreleased | - | - |
+| 0.2.1 | 2026-03-11 | Auth updates, migration robustness fixes, and documentation improvements |
+| 0.2.0 | 2026-01-26 | Content API integration, data app, retrieval tools |
 | 0.1.0 | 2026-01-08 | Initial alpha release |
 
 ---

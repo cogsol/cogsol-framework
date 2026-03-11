@@ -1,6 +1,6 @@
 # CogSol Framework
 
-**Version:** 0.2.0 (Alpha)
+**Version:** 0.2.1 (Alpha)
 
 CogSol is a lightweight, agent-first Python framework for building, managing, and deploying AI assistants. It provides scaffolding, agent abstractions, and file-based migration utilities for CogSol projects without requiring an external database.
 

@@ -210,7 +210,7 @@ python manage.py chat --agent SupportAgent
 
 ## Version
 
-This documentation is for CogSol Framework **v0.2.0**.
+This documentation is for CogSol Framework **v0.2.1**.
 
 ---
 
