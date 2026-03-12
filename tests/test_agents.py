@@ -280,3 +280,52 @@ class ProductDocsSearch(BaseRetrievalTool):
             ops = diff_states(empty_state(), defs, app="agents")
             create_ops = [op for op in ops if isinstance(op, CreateRetrievalTool)]
             assert len(create_ops) == 1
+
+
+class TestToolCodeDiffs:
+    """Tests for tool code snapshot diffs used by makemigrations."""
+
+    def _write_tools(self, project_path: Path, helper_body: str) -> None:
+        agents_path = project_path / "agents"
+        agents_path.mkdir(parents=True, exist_ok=True)
+        (agents_path / "__init__.py").write_text("", encoding="utf-8")
+        (agents_path / "tools.py").write_text(
+            f"""
+from cogsol.tools import BaseTool
+
+
+class EchoTool(BaseTool):
+    name = "echo"
+    description = "Echo text."
+
+    def helper(self, text: str) -> str:
+        {helper_body}
+
+    def run(self, text: str = "") -> str:
+        return self.helper(text)
+""",
+            encoding="utf-8",
+        )
+
+    def test_helper_method_change_alters_tool_code(self):
+        """Changing helper method code should produce a tool __code__ AlterField."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_path = Path(tmpdir)
+
+            self._write_tools(project_path, "return text.upper()")
+            previous = collect_definitions(project_path, "agents")
+
+            self._write_tools(project_path, "return text.lower()")
+            current = collect_definitions(project_path, "agents")
+
+            ops = diff_states(previous, current, app="agents")
+            code_ops = [
+                op
+                for op in ops
+                if isinstance(op, AlterField)
+                and op.entity == "tools"
+                and op.model_name == "Echo"
+                and op.name == "__code__"
+            ]
+            assert len(code_ops) == 1
+            assert "return text.lower()" in str(code_ops[0].value)

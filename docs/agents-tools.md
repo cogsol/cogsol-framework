@@ -433,7 +433,7 @@ from data.retrievals import ProductDocsRetrieval
 class DocsSearch(BaseRetrievalTool):
     name = "docs_search"
     description = "Search product documentation for answers"
-    retrieval = ProductDocsRetrieval
+    retrieval = ProductDocsRetrieval()
     parameters = [
         {"name": "question", "description": "Search query", "type": "string", "required": True}
     ]
@@ -462,10 +462,11 @@ Retrieval tools reference Content API retrievals defined in `data/retrievals.py`
 ```python
 # data/retrievals.py
 from cogsol.content import BaseRetrieval
+from data.product_docs import ProductDocsTopic
 
 class ProductDocsRetrieval(BaseRetrieval):
     name = "product_docs_search"
-    topic = "product_docs"
+    topic = ProductDocsTopic
     num_refs = 10
 
 # agents/searches.py
@@ -475,7 +476,7 @@ from data.retrievals import ProductDocsRetrieval
 class ProductDocsSearch(BaseRetrievalTool):
     name = "product_docs_search"
     description = "Search the product documentation"
-    retrieval = ProductDocsRetrieval
+    retrieval = ProductDocsRetrieval()
 ```
 
 #### Using in Agents
@@ -682,11 +683,12 @@ Retrievals define semantic search behavior. Place them in `data/retrievals.py`.
 ```python
 from cogsol.content import BaseRetrieval, ReorderingStrategy
 from data.formatters import DefaultFormatter
+from data.product_docs import ProductDocsTopic
 from data.product_docs.metadata import ProductMetadata
 
 class ProductDocsRetrieval(BaseRetrieval):
     name = "product_docs_search"
-    topic = "product_docs"
+    topic = ProductDocsTopic
     num_refs = 10
     reordering = False
     strategy_reordering = ReorderingStrategy.NONE
@@ -699,7 +701,7 @@ class ProductDocsRetrieval(BaseRetrieval):
 | Attribute | Type | Description |
 |-----------|------|-------------|
 | `name` | `str` | Retrieval identifier |
-| `topic` | `str` or `BaseTopic` | Topic name or topic class |
+| `topic` | `type[BaseTopic]` | Topic class reference (e.g. `ProductDocsTopic`) |
 | `num_refs` | `int` | Number of references to return |
 | `max_msg_length` | `int` | Max response length |
 | `reordering` | `bool` | Enable reordering |
@@ -753,11 +755,12 @@ class DetailedFormatter(BaseReferenceFormatter):
 # data/retrievals.py
 from cogsol.content import BaseRetrieval
 from data.formatters import DetailedFormatter
+from data.knowledge_base import KnowledgeBaseTopic
 from data.knowledge_base.metadata import DepartmentMetadata
 
 class KnowledgeBaseRetrieval(BaseRetrieval):
     name = "kb_search"
-    topic = "knowledge_base"
+    topic = KnowledgeBaseTopic
     num_refs = 8
     formatters = {"Text Document": DetailedFormatter}
     filters = [DepartmentMetadata]
@@ -771,7 +774,7 @@ from data.retrievals import KnowledgeBaseRetrieval
 class KnowledgeBaseSearch(BaseRetrievalTool):
     name = "search_knowledge_base"
     description = "Search the company knowledge base"
-    retrieval = KnowledgeBaseRetrieval
+    retrieval = KnowledgeBaseRetrieval()
 ```
 
 ### Content Workflow

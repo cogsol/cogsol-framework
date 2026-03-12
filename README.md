@@ -1,6 +1,6 @@
 # CogSol Framework
 
-**Version:** 0.2.0 (Alpha)
+**Version:** 0.2.1 (Alpha)
 
 CogSol is a lightweight, agent-first Python framework for building, managing, and deploying AI assistants. It provides scaffolding, agent abstractions, and file-based migration utilities for CogSol projects without requiring an external database.
 
@@ -54,8 +54,8 @@ CogSol is designed to provide a Django-like development experience for building 
 ### From Source
 
 ```bash
-git clone <repository-url>
-cd framework
+git clone <repository-url> cogsol-framework
+cd cogsol-framework
 pip install -e .
 ```
 
@@ -148,6 +148,8 @@ python manage.py chat --agent SalesAgent
 ```
 
 ### 7. Add Document Topics (Optional)
+
+`documentation` in the examples below is only a sample topic name. You can use any topic name that fits your use case.
 
 ```bash
 # Create a topic for documents
@@ -277,6 +279,7 @@ python manage.py starttopic <topic-name> [--path <parent-path>]
 
 **Examples:**
 ```bash
+# `documentation` is just an example topic name.
 # Create a root topic
 python manage.py starttopic documentation
 
@@ -467,7 +470,7 @@ from cogsol.tools import BaseRetrievalTool
 # class ProductDocsSearch(BaseRetrievalTool):
 #     name = "product_docs_search"
 #     description = "Search the product documentation."
-#     retrieval = ProductDocsRetrieval
+#     retrieval = ProductDocsRetrieval()
 #     parameters = [
 #         {"name": "question", "description": "Search query", "type": "string", "required": True}
 #     ]
