@@ -611,14 +611,17 @@ python manage.py migrate data
 
 ### Step 8: Ingest Documents
 
-Upload documents to your topic:
+Upload documents to your topic. In this guide, examples place files under `data/<topic-path>/` so the file location mirrors the topic path:
 
 ```bash
 # Ingest a directory of documents
-python manage.py ingest product_docs ./docs/
+python manage.py ingest product_docs ./data/product_docs/
+
+# Ingest into a nested child topic (parent/child path)
+python manage.py ingest product_docs/tutorials ./data/product_docs/tutorials/*.pdf
 
 # Preview first (dry run)
-python manage.py ingest product_docs ./docs/ --dry-run
+python manage.py ingest product_docs ./data/product_docs/ --dry-run
 ```
 
 ### Step 9: List Topics

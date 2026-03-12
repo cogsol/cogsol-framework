@@ -587,6 +587,11 @@ python manage.py ingest <topic> <files...> [options]
 | `topic` | Yes | - | Topic path (e.g., `docs` or `parent/child`) |
 | `files` | Yes | - | Files, directories, or glob patterns |
 
+Use slash-separated paths for nested topics during ingestion (for example:
+`documentation/tutorials`). For a topic-aligned workflow, place files under
+`data/<topic-path>/` and ingest from that matching path (for example:
+`./data/documentation/*.pdf` and `./data/documentation/tutorials/*.pdf`).
+
 #### Options
 
 | Option | Default | Description |
@@ -628,27 +633,30 @@ class HighQualityConfig(BaseIngestionConfig):
 Then use with:
 
 ```bash
-python manage.py ingest documentation ./docs/ --ingestion-config high_quality
+python manage.py ingest documentation ./data/documentation/ --ingestion-config high_quality
 ```
 
 #### Example Usage
 
 ```bash
 # Ingest all PDFs in a directory
-python manage.py ingest documentation ./docs/*.pdf
+python manage.py ingest documentation ./data/documentation/*.pdf
+
+# Ingest into a child topic using parent/child path
+python manage.py ingest documentation/tutorials ./data/documentation/tutorials/*.pdf
 
 # Ingest an entire directory recursively
-python manage.py ingest documentation ./docs/
+python manage.py ingest documentation ./data/documentation/
 
 # Use custom settings
-python manage.py ingest documentation ./reports/ \
+python manage.py ingest documentation ./data/documentation/reports/ \
     --doc-type "Text Document" \
     --pdf-mode ocr \
     --chunking ingestor \
     --max-size-block 2000
 
 # Preview what would be ingested
-python manage.py ingest documentation ./docs/ --dry-run
+python manage.py ingest documentation ./data/documentation/ --dry-run
 ```
 
 #### Output Messages

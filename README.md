@@ -161,7 +161,10 @@ python manage.py makemigrations data
 python manage.py migrate data
 
 # Ingest documents into a topic
-python manage.py ingest documentation ./docs/*.pdf
+python manage.py ingest documentation ./data/documentation/*.pdf
+
+# Ingest documents into a nested topic
+python manage.py ingest documentation/tutorials ./data/documentation/tutorials/*.pdf
 ```
 
 ---
@@ -294,6 +297,14 @@ python manage.py ingest <topic> <files...> [options]
 - `topic`: Topic path (e.g., `documentation` or `parent/child/topic`)
 - `files`: Files, directories, or glob patterns to ingest
 
+Use slash-separated paths for nested topics. For example, if you created `tutorials` under
+`documentation` with `starttopic tutorials --path documentation`, ingest into it with
+`documentation/tutorials`.
+
+For a topic-aligned workflow, place files under `data/<topic-path>/` and ingest from that
+folder (for example, `./data/documentation/*.pdf` or
+`./data/documentation/tutorials/*.pdf`).
+
 **Options:**
 - `--doc-type`: Document type (defaults to `Text Document`)
 - `--ingestion-config`: Name of an ingestion config from `data/ingestion.py`
@@ -310,13 +321,16 @@ python manage.py ingest <topic> <files...> [options]
 **Examples:**
 ```bash
 # Ingest PDF files
-python manage.py ingest documentation ./docs/*.pdf
+python manage.py ingest documentation ./data/documentation/*.pdf
+
+# Ingest into a child topic
+python manage.py ingest documentation/tutorials ./data/documentation/tutorials/*.pdf
 
 # Ingest with custom config
-python manage.py ingest documentation ./docs/ --ingestion-config HighQuality
+python manage.py ingest documentation ./data/documentation/ --ingestion-config HighQuality
 
 # Dry run to preview
-python manage.py ingest documentation ./data/ --dry-run
+python manage.py ingest documentation ./data/documentation/ --dry-run
 ```
 
 ### `topics`
@@ -610,7 +624,7 @@ from cogsol.content import BaseIngestionConfig, PDFParsingMode, ChunkingMode
 Use with the `ingest` command:
 
 ```bash
-python manage.py ingest documentation ./docs/ --ingestion-config high_quality
+python manage.py ingest documentation ./data/documentation/ --ingestion-config high_quality
 ```
 
 #### Reference Formatters
