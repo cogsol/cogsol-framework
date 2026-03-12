@@ -121,12 +121,13 @@ from cogsol.content import BaseIngestionConfig, PDFParsingMode, ChunkingMode
 
 DATA_RETRIEVALS_PY = """\
 from cogsol.content import BaseRetrieval, ReorderingStrategy
+# from data.product_docs import ProductDocsTopic
 #
 # class ProductDocsRetrieval(BaseRetrieval):
 #     \"\"\"Sample retrieval configuration.\"\"\"
 #
 #     name = "product_docs_search"
-#     topic = "product_docs"
+#     topic = ProductDocsTopic
 #     num_refs = 10
 #     reordering = False
 #     strategy_reordering = ReorderingStrategy.NONE

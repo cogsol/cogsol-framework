@@ -574,11 +574,12 @@ Add a retrieval in `data/retrievals.py` to enable semantic search:
 
 ```python
 from cogsol.content import BaseRetrieval
+from data.product_docs import ProductDocsTopic
 
 
 class ProductDocsRetrieval(BaseRetrieval):
     name = "product_docs_search"
-    topic = "product_docs"
+    topic = ProductDocsTopic
     num_refs = 10
 ```
 
