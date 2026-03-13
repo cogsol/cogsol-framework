@@ -23,9 +23,7 @@ sent write-only to the CogSol API, which stores it in Azure Key Vault.
 
 from __future__ import annotations
 
-import os
 import re
-import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -238,7 +236,7 @@ class Command(BaseCommand):
             server_body_lines = [
                 f'    name = "{server_name}"',
                 f'    description = "{server_description}"',
-                f'    auth_type = "none"',
+                '    auth_type = "none"',
                 f'    url = "{server_url}"',
             ]
 
@@ -272,7 +270,7 @@ class Command(BaseCommand):
             server_body_lines = [
                 f'    name = "{server_name}"',
                 f'    description = "{server_description}"',
-                f'    auth_type = "oauth2"',
+                '    auth_type = "oauth2"',
                 f'    url = "{server_url}"',
             ]
             if oauth_client_id:
