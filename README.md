@@ -141,13 +141,23 @@ python manage.py makemigrations
 python manage.py migrate
 ```
 
-### 6. Chat with Your Agent
+### 6. Configure API key of your preferred LLM provider
+
+To run your agents, you’ll need to configure first the API key of your preferred LLM provider:
+- OpenAI
+- Google Gemini
+- Anthropic
+
+You can add your API key at [Cogsol platform](https://platform.cogsol.ai/configuration/services)
+
+
+### 7. Chat with Your Agent
 
 ```bash
 python manage.py chat --agent SalesAgent
 ```
 
-### 7. Add Document Topics (Optional)
+### 8. Add Document Topics (Optional)
 
 `documentation` in the examples below is only a sample topic name. You can use any topic name that fits your use case.
 
