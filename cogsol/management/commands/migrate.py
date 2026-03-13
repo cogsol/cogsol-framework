@@ -840,7 +840,7 @@ class Command(BaseCommand):
         self,
         tool_name: str,
         definition: dict[str, Any],
-        cls: type[BaseTool] | None,
+        cls: type[BaseTool] | None = None,
     ) -> dict[str, Any]:
         fields = definition.get("fields", {}) if definition else {}
 
@@ -874,7 +874,11 @@ class Command(BaseCommand):
             description = getattr(cls, "description", None)
         description = description or f"Tool {tool_name}"
 
-        code = self._tool_script_from_class(cls) if cls is not None else ""
+        code = (
+            self._tool_script_from_class(cls)
+            if cls is not None
+            else self._tool_script_from_state(fields)
+        )
         code = code or "# TODO: provide implementation\nresponse = None"
 
         return {
@@ -1165,6 +1169,87 @@ class Command(BaseCommand):
         for name in helper_names:
             rewritten = re.sub(rf"\bself\.{name}\b", name, rewritten)
         return rewritten
+
+    def _strip_self_from_signature(self, source: str) -> str:
+        lines = source.splitlines()
+        cleaned: list[str] = []
+        in_signature = True
+        for line in lines:
+            if in_signature:
+                stripped = line.strip()
+                if stripped in {"self", "self,"}:
+                    continue
+                line = re.sub(r"\(\s*self\s*,\s*", "(", line)
+                line = re.sub(r"\(\s*self\s*\)", "()", line)
+                line = re.sub(r",\s*self\s*(?=[,)])", "", line)
+                if stripped.endswith(":"):
+                    in_signature = False
+            cleaned.append(line)
+        return "\n".join(cleaned)
+
+    def _tool_script_from_state(self, fields: dict[str, Any]) -> str:
+        code = _normalize_code(fields.get("__code__", "") or "")
+        if not code:
+            return ""
+
+        try:
+            tree = ast.parse(code)
+        except SyntaxError:
+            return ""
+
+        lines = code.splitlines()
+        helper_sources: list[str] = []
+        helper_names: list[str] = []
+        run_node: ast.FunctionDef | ast.AsyncFunctionDef | None = None
+
+        for node in tree.body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name == "run":
+                run_node = node
+                continue
+            if node.name.startswith("__") and node.name.endswith("__"):
+                continue
+            helper_names.append(node.name)
+            helper_src = "\n".join(lines[node.lineno - 1 : node.end_lineno])
+            helper_src = self._strip_self_from_signature(helper_src)
+            helper_src = self._replace_self_calls(helper_src, helper_names)
+            helper_sources.append(helper_src.strip())
+
+        run_script = ""
+        if run_node is not None and run_node.body:
+            body_start = run_node.body[0].lineno - 1
+            body_end = run_node.end_lineno or run_node.body[-1].lineno
+            body = "\n".join(lines[body_start:body_end])
+            dedented = textwrap.dedent(body)
+            dedented = self._replace_self_calls(dedented, helper_names)
+
+            params_to_bind = list((fields.get("parameters") or {}).keys())
+            result_lines: list[str] = []
+            for p in params_to_bind:
+                result_lines.append(f"{p} = params.get('{p}') if params else None")
+
+            for line in dedented.splitlines():
+                stripped = line.lstrip()
+                indent = line[: len(line) - len(stripped)]
+                if stripped.startswith("return "):
+                    result_lines.append(f"{indent}response = {stripped[len('return '):]}")
+                    continue
+                if stripped == "return":
+                    result_lines.append(f"{indent}response = None")
+                    continue
+                result_lines.append(line)
+
+            run_script = "\n".join(result_lines).strip()
+            if "response" not in run_script:
+                run_script += ("\n\n" if run_script else "") + "response = None"
+
+        script_parts: list[str] = []
+        if helper_sources:
+            script_parts.append("\n\n".join(helper_sources))
+        if run_script:
+            script_parts.append(run_script)
+        return "\n\n".join(script_parts).strip()
 
     def _tool_script_from_class(self, cls: type[BaseTool] | None) -> str:
         if cls is None:
