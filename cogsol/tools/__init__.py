@@ -109,8 +109,8 @@ class BaseMCPServer:
     auth_type: str = "headers"  # "none" | "headers" | "oauth2"
 
     # OAuth 2.1 (only meaningful when auth_type == "oauth2")
-    oauth_client_id: str | None = None   # Optional; DCR fills it when omitted
-    oauth_scopes: str | None = None      # Space-separated scopes, e.g. "read:jira"
+    oauth_client_id: str | None = None  # Optional; DCR fills it when omitted
+    oauth_scopes: str | None = None  # Space-separated scopes, e.g. "read:jira"
     # NOTE: oauth_client_secret is intentionally NOT declared here — it is
     # never stored in source code; addmcptools prompts for it and sends it
     # write-only to the CogSol API (Azure Key Vault).
@@ -120,9 +120,7 @@ class BaseMCPServer:
             self.name = name
         if not getattr(self, "name", None):
             cls_name = self.__class__.__name__
-            self.name = (
-                cls_name[:-9] if cls_name.endswith("MCPServer") else cls_name
-            )
+            self.name = cls_name[:-9] if cls_name.endswith("MCPServer") else cls_name
 
     def __repr__(self) -> str:
         return f"<MCPServer {self.name or self.__class__.__name__}>"

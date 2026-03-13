@@ -577,8 +577,7 @@ class Command(BaseCommand):
                     "name": fields.get("name", srv_name),
                     "description": fields.get("description") or "",
                     "url": _cls_or_field("url", ""),
-                    "headers": _cls_or_field("headers", {})
-                        if auth_type != "oauth2" else {},
+                    "headers": _cls_or_field("headers", {}) if auth_type != "oauth2" else {},
                     "protocol_version": fields.get("protocol_version", "2025-03-26"),
                     "client_name": fields.get("client_name", "cognitive-mcp-client"),
                     "client_version": fields.get("client_version", "1.0.0"),

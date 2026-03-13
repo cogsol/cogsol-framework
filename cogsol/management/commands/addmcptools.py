@@ -249,9 +249,7 @@ class Command(BaseCommand):
                 env_new_vars[env_key] = hv
                 header_attr_lines.append(f'        "{hk}": os.environ.get("{env_key}", ""),')
             headers_block = (
-                "{\n" + "\n".join(header_attr_lines) + "\n    }"
-                if header_attr_lines
-                else "{}"
+                "{\n" + "\n".join(header_attr_lines) + "\n    }" if header_attr_lines else "{}"
             )
             server_body_lines = [
                 f'    name = "{server_name}"',
@@ -291,13 +289,16 @@ class Command(BaseCommand):
             "",
             "",
         ]
-        server_code = "\n".join(header_lines + [
-            f"class {server_cls_name}(BaseMCPServer):",
-            f'    """MCP server: {server_name}."""',
-            "",
-            server_body,
-            "",
-        ])
+        server_code = "\n".join(
+            header_lines
+            + [
+                f"class {server_cls_name}(BaseMCPServer):",
+                f'    """MCP server: {server_name}."""',
+                "",
+                server_body,
+                "",
+            ]
+        )
 
         # ── Build mcp_tools.py snippet ───────────────────────────────
         tool_classes: list[str] = []
@@ -306,23 +307,29 @@ class Command(BaseCommand):
             t_desc = t.get("description", "") or ""
             t_cls_base = re.sub(r"[^a-zA-Z0-9]+", " ", t_name).title().replace(" ", "")
             t_cls_name = f"{t_cls_base}MCPTool"
-            tool_classes.append("\n".join([
-                "",
-                "",
-                f"class {t_cls_name}(BaseMCPTool):",
-                f'    """MCP tool: {t_name}."""',
-                "",
-                f'    name = "{t_name}"',
-                f'    description = """{t_desc}"""',
-                f"    server = {server_cls_name}",
-                "",
-            ]))
+            tool_classes.append(
+                "\n".join(
+                    [
+                        "",
+                        "",
+                        f"class {t_cls_name}(BaseMCPTool):",
+                        f'    """MCP tool: {t_name}."""',
+                        "",
+                        f'    name = "{t_name}"',
+                        f'    description = """{t_desc}"""',
+                        f"    server = {server_cls_name}",
+                        "",
+                    ]
+                )
+            )
 
-        tools_code = "\n".join([
-            "from cogsol.tools import BaseMCPTool",
-            "",
-            f"from {app}.mcp_servers import {server_cls_name}",
-        ]) + "".join(tool_classes)
+        tools_code = "\n".join(
+            [
+                "from cogsol.tools import BaseMCPTool",
+                "",
+                f"from {app}.mcp_servers import {server_cls_name}",
+            ]
+        ) + "".join(tool_classes)
 
         # ── Write files ───────────────────────────────────────────────
         app_path = project_path / app
@@ -339,10 +346,15 @@ class Command(BaseCommand):
                     f"{servers_file.name}; skipping."
                 )
             else:
-                class_only = "\n\n" + "\n".join(
-                    line for line in server_code.splitlines()
-                    if not line.startswith("import ") and not line.startswith("from ")
-                ).strip() + "\n"
+                class_only = (
+                    "\n\n"
+                    + "\n".join(
+                        line
+                        for line in server_code.splitlines()
+                        if not line.startswith("import ") and not line.startswith("from ")
+                    ).strip()
+                    + "\n"
+                )
                 servers_file.write_text(existing.rstrip() + class_only, encoding="utf-8")
                 print(f"  Appended {server_cls_name} to {servers_file.name}")
         else:
@@ -367,15 +379,17 @@ class Command(BaseCommand):
         else:
             if not tools_file.exists():
                 # Create a placeholder so the module is importable
-                placeholder = "\n".join([
-                    "from cogsol.tools import BaseMCPTool",
-                    "",
-                    f"from {app}.mcp_servers import {server_cls_name}",
-                    "# No tools selected yet.",
-                    "# Re-run `python manage.py addmcptools` after completing OAuth",
-                    "# authorization in the CogSol portal to select tools.",
-                    "",
-                ])
+                placeholder = "\n".join(
+                    [
+                        "from cogsol.tools import BaseMCPTool",
+                        "",
+                        f"from {app}.mcp_servers import {server_cls_name}",
+                        "# No tools selected yet.",
+                        "# Re-run `python manage.py addmcptools` after completing OAuth",
+                        "# authorization in the CogSol portal to select tools.",
+                        "",
+                    ]
+                )
                 tools_file.write_text(placeholder, encoding="utf-8")
                 print(f"  Created {tools_file.name} (placeholder — tools to be added later)")
 
@@ -417,7 +431,5 @@ class Command(BaseCommand):
             "'python manage.py migrate'."
         )
         if auth_type == "oauth2":
-            print(
-                "After migrate, complete the OAuth authorization flow from the CogSol portal."
-            )
+            print("After migrate, complete the OAuth authorization flow from the CogSol portal.")
         return 0

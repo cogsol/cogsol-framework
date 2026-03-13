@@ -54,14 +54,17 @@ class MCPClient:
         Returns ``True`` on success, ``False`` on failure.
         """
         try:
-            self._make_request("initialize", {
-                "protocolVersion": "2025-03-26",
-                "capabilities": {"tools": {}},
-                "clientInfo": {
-                    "name": "cognitive-mcp-client",
-                    "version": "1.0.0",
+            self._make_request(
+                "initialize",
+                {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {"tools": {}},
+                    "clientInfo": {
+                        "name": "cognitive-mcp-client",
+                        "version": "1.0.0",
+                    },
                 },
-            })
+            )
 
             result = self._make_request("tools/list")
             self.tools = [
