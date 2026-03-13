@@ -103,9 +103,9 @@ class Command(BaseCommand):
 
         # Auth type
         print("\nAuthentication type:")
-        for i, t in enumerate(AUTH_TYPES, 1):
-            suffix = "  ← default" if t == "headers" else ""
-            print(f"  {i}. {t}{suffix}")
+        for i, auth_option in enumerate(AUTH_TYPES, 1):
+            suffix = "  ← default" if auth_option == "headers" else ""
+            print(f"  {i}. {auth_option}{suffix}")
         auth_choice = _ask("Select auth type", "2")
         try:
             auth_idx = int(auth_choice) - 1
@@ -180,9 +180,9 @@ class Command(BaseCommand):
 
         if tools:
             print(f"\nFound {len(tools)} tool(s):\n")
-            for i, t in enumerate(tools, 1):
-                desc = t.get("description", "")
-                print(f"  {i}. {t['name']}")
+            for i, tool in enumerate(tools, 1):
+                desc = tool.get("description", "")
+                print(f"  {i}. {tool['name']}")
                 if desc:
                     print(f"     {desc[:100]}")
             print()
@@ -302,9 +302,9 @@ class Command(BaseCommand):
 
         # ── Build mcp_tools.py snippet ───────────────────────────────
         tool_classes: list[str] = []
-        for t in selected_tools:
-            t_name = t["name"]
-            t_desc = t.get("description", "") or ""
+        for tool in selected_tools:
+            t_name = tool["name"]
+            t_desc = tool.get("description", "") or ""
             t_cls_base = re.sub(r"[^a-zA-Z0-9]+", " ", t_name).title().replace(" ", "")
             t_cls_name = f"{t_cls_base}MCPTool"
             tool_classes.append(

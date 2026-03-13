@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any
+from typing import Any, cast
 from urllib import error, request
 
 
@@ -152,10 +152,16 @@ class MCPClient:
                     return self._parse_sse(raw)
 
                 # Default: treat as JSON
-                result = json.loads(raw)
+                result_obj = json.loads(raw)
+                if not isinstance(result_obj, dict):
+                    raise MCPClientError("Invalid JSON-RPC response payload")
+                result = cast(dict[str, Any], result_obj)
                 if "error" in result:
                     raise MCPClientError(f"MCP Error: {result['error']}")
-                return result.get("result", {})
+                result_payload = result.get("result", {})
+                if isinstance(result_payload, dict):
+                    return cast(dict[str, Any], result_payload)
+                raise MCPClientError("Invalid JSON-RPC result payload")
 
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="ignore")
@@ -170,9 +176,15 @@ class MCPClient:
             line = line.strip()
             if line.startswith("data: "):
                 try:
-                    data = json.loads(line[6:])
+                    data_obj = json.loads(line[6:])
+                    if not isinstance(data_obj, dict):
+                        continue
+                    data = cast(dict[str, Any], data_obj)
                     if "result" in data:
-                        return data["result"]
+                        result_payload = data["result"]
+                        if isinstance(result_payload, dict):
+                            return cast(dict[str, Any], result_payload)
+                        raise MCPClientError("Invalid JSON-RPC result payload")
                     if "error" in data:
                         raise MCPClientError(f"MCP Error: {data['error']}")
                 except json.JSONDecodeError:
