@@ -307,6 +307,46 @@ class Command(BaseCommand):
                     created.append(("formatter", None, new_id))
                 new_remote.setdefault("formatters", {})[fmt_name] = new_id
 
+            # Upsert metadata configs (before retrievals, since filters reference them)
+            for cfg_key, definition in state.get("metadata_configs", {}).items():
+                if touched is not None and cfg_key not in touched.get("metadata_configs", set()):
+                    continue
+                fields = definition.get("fields", {})
+                topic_path = definition.get("topic", "")
+                cfg_name = fields.get("name")
+                if not topic_path or not cfg_name:
+                    continue
+                node_id = topic_id_map.get(topic_path) or new_remote.get("topics", {}).get(
+                    topic_path
+                )
+                if not node_id:
+                    continue
+
+                cfg_payload = {
+                    "name": cfg_name,
+                    "type": fields.get("type", "STRING"),
+                    "possible_values": fields.get("possible_values", []),
+                    "default_value": fields.get("default_value"),
+                    "format": fields.get("format"),
+                    "filtrable": fields.get("filtrable", False),
+                    "required": fields.get("required", False),
+                    "in_embedding": fields.get("in_embedding", False),
+                    "in_retrieval": fields.get("in_retrieval", True),
+                }
+                if cfg_payload["required"] and cfg_payload.get("default_value") is None:
+                    raise CogSolAPIError(
+                        "Default value is required for required metadata configs. "
+                        f"Set default_value for '{cfg_key}'."
+                    )
+
+                cfg_remote_id = new_remote.get("metadata_configs", {}).get(cfg_key)
+                if cfg_remote_id:
+                    client.update_metadata_config(cfg_remote_id, cfg_payload)
+                else:
+                    new_cfg_id = client.create_metadata_config(node_id=node_id, payload=cfg_payload)
+                    created.append(("metadata_config", node_id, new_cfg_id))
+                    new_remote.setdefault("metadata_configs", {})[cfg_key] = new_cfg_id
+
             # Upsert retrievals
             for ret_name, definition in state.get("retrievals", {}).items():
                 if touched is not None and ret_name not in touched.get("retrievals", set()):
@@ -351,7 +391,25 @@ class Command(BaseCommand):
                 _set_if_defined("next_blocks")
                 _set_if_defined("contingency_for_embedding")
                 _set_if_defined("threshold_similarity")
-                _set_if_defined("filters")
+                if "filters" in fields and fields["filters"]:
+                    filters_value = fields["filters"]
+                    if not isinstance(filters_value, list):
+                        raise CogSolAPIError(
+                            f"filters must be a list of metadata config names. "
+                            f"Fix retrieval '{ret_name}'."
+                        )
+                    metadata_configs = new_remote.get("metadata_configs", {})
+                    filters_payload: list[int] = []
+                    for filter_name in filters_value:
+                        filter_id = metadata_configs.get(filter_name)
+                        if filter_id is None:
+                            raise CogSolAPIError(
+                                "MetadataConfig must be migrated before use as filter. "
+                                f"Missing metadata config id for '{filter_name}' "
+                                f"in retrieval '{ret_name}'."
+                            )
+                        filters_payload.append(int(filter_id))
+                    retrieval_payload["filters"] = filters_payload
 
                 if (
                     "strategy_reordering" in retrieval_payload
@@ -424,46 +482,6 @@ class Command(BaseCommand):
                 if not remote_id:
                     created.append(("ingestion_config", None, new_id))
                 new_remote.setdefault("ingestion_configs", {})[cfg_name] = new_id
-
-            # Upsert metadata configs
-            for cfg_key, definition in state.get("metadata_configs", {}).items():
-                if touched is not None and cfg_key not in touched.get("metadata_configs", set()):
-                    continue
-                fields = definition.get("fields", {})
-                topic_path = definition.get("topic", "")
-                cfg_name = fields.get("name")
-                if not topic_path or not cfg_name:
-                    continue
-                node_id = topic_id_map.get(topic_path) or new_remote.get("topics", {}).get(
-                    topic_path
-                )
-                if not node_id:
-                    continue
-
-                cfg_payload = {
-                    "name": cfg_name,
-                    "type": fields.get("type", "STRING"),
-                    "possible_values": fields.get("possible_values", []),
-                    "default_value": fields.get("default_value"),
-                    "format": fields.get("format"),
-                    "filtrable": fields.get("filtrable", False),
-                    "required": fields.get("required", False),
-                    "in_embedding": fields.get("in_embedding", False),
-                    "in_retrieval": fields.get("in_retrieval", True),
-                }
-                if cfg_payload["required"] and cfg_payload.get("default_value") is None:
-                    raise CogSolAPIError(
-                        "Default value is required for required metadata configs. "
-                        f"Set default_value for '{cfg_key}'."
-                    )
-
-                cfg_remote_id = new_remote.get("metadata_configs", {}).get(cfg_key)
-                if cfg_remote_id:
-                    client.update_metadata_config(cfg_remote_id, cfg_payload)
-                else:
-                    new_cfg_id = client.create_metadata_config(node_id=node_id, payload=cfg_payload)
-                    created.append(("metadata_config", node_id, new_cfg_id))
-                    new_remote.setdefault("metadata_configs", {})[cfg_key] = new_cfg_id
 
             return new_remote
 

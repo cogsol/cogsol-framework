@@ -31,6 +31,15 @@ from cogsol.tools import (
     BaseTool,
 )
 
+_SERIALIZABLE_TYPE_BASES = (
+    BaseRetrieval,
+    BaseReferenceFormatter,
+    BaseTopic,
+    BaseIngestionConfig,
+    BaseMetadataConfig,
+    BaseRetrievalTool,
+)
+
 
 def _normalize_code(value: Any) -> Any:
     if not isinstance(value, str):
@@ -69,17 +78,7 @@ def serialize_value(value: Any) -> Any:
             getattr(value, "name", None) or getattr(value, "key", None) or value.__class__.__name__
         )
     if isinstance(value, type):
-        if issubclass(value, BaseRetrieval):
-            return getattr(value, "name", None) or value.__name__
-        if issubclass(value, BaseReferenceFormatter):
-            return getattr(value, "name", None) or value.__name__
-        if issubclass(value, BaseTopic):
-            return getattr(value, "name", None) or value.__name__
-        if issubclass(value, BaseIngestionConfig):
-            return getattr(value, "name", None) or value.__name__
-        if issubclass(value, BaseMetadataConfig):
-            return getattr(value, "name", None) or value.__name__
-        if issubclass(value, BaseRetrievalTool):
+        if any(issubclass(value, b) for b in _SERIALIZABLE_TYPE_BASES):
             return getattr(value, "name", None) or value.__name__
     if is_dataclass(value) and not isinstance(value, type):
         data = asdict(value)
