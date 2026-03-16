@@ -362,6 +362,9 @@ class {class_name}(BaseAgent):
     max_msg_length = {assistant.get("max_msg_length") or 0}
     max_consecutive_tool_calls = {assistant.get("max_consecutive_tool_calls") or 0}
     temperature = {assistant.get("temperature") or 0.0}
+    initial_message = {assistant.get("initial_message")!r}
+    forced_termination_message = {assistant.get("end_message")!r}
+    no_information_message = {assistant.get("not_info_message")!r}
 
     class Meta:
         name = {class_name!r}
@@ -559,6 +562,9 @@ class {class_name}(BaseAgent):
             "max_responses": assistant.get("max_responses"),
             "max_msg_length": assistant.get("max_msg_length"),
             "max_consecutive_tool_calls": assistant.get("max_consecutive_tool_calls"),
+            "initial_message": assistant.get("initial_message"),
+            "forced_termination_message": assistant.get("end_message"),
+            "no_information_message": assistant.get("not_info_message"),
             "streaming": assistant.get("streaming_available"),
             "realtime": assistant.get("realtime_available"),
             "tools": [n for n in (_tool_name_for_id(sid) for sid in tools_ids) if n],
