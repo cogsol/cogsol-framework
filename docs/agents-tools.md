@@ -467,6 +467,12 @@ Use this order when creating a new search capability:
 
 Purpose: configure semantic search over a created topic. 
 
+Prerequisite: create the topic package first:
+
+```bash
+python manage.py starttopic product_docs
+```
+
 Location: `data/retrievals.py`
 
 ```python
@@ -511,11 +517,13 @@ class SupportAgent(BaseAgent):
     tools = [ProductDocsSearch()]
 ```
 
-After defining topic and retrieval classes, run:
+After you define the topic class, the retrieval class, and the search registration in the agent, run:
 
 ```bash
 python manage.py makemigrations data
 python manage.py migrate data
+python manage.py makemigrations
+python manage.py migrate
 ```
 
 ---
