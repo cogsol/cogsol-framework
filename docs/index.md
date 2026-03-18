@@ -134,7 +134,10 @@ from cogsol.prompts import Prompts
 class SupportAgent(BaseAgent):
     system_prompt = Prompts.load("support.md")
     generation_config = genconfigs.QA()
-    tools = [SearchTool(), DocsSearch()]
+    tools = [
+        DateTool(),    # Script tool: executes Python capability
+        DocsSearch(),  # Retrieval tool: searches topic documents
+    ]
     temperature = 0.3
     
     class Meta:
@@ -142,25 +145,26 @@ class SupportAgent(BaseAgent):
         chat_name = "Customer Support"
 ```
 
+Both tool types are configured in the same `tools` list. Use script tools for actions/calculations and retrieval tools for document search.
+
 ### Tools
 
-Tools extend agent capabilities with custom logic:
+Tools are Python capabilities that perform actions with custom logic, extending the agent's capabilities::
 
 ```python
-from cogsol.tools import BaseTool, tool_params
+from cogsol.tools import BaseTool
+from datetime import datetime
 
-class SearchTool(BaseTool):
-    description = "Search the knowledge base"
-    
-    @tool_params(query={"description": "Search query", "type": "string", "required": True})
-    def run(self, chat=None, data=None, secrets=None, log=None, query: str = ""):
-        results = perform_search(query)
-        return format_results(results)
+class DateTool(BaseTool):
+    description = "Return the current date in YYYY-MM-DD format"
+
+    def run(self, chat=None, data=None, secrets=None, log=None):
+        return datetime.utcnow().strftime("%Y-%m-%d")
 ```
 
 ### Retrieval Tools
 
-Retrieval tools connect agents to Content API retrievals:
+Retrieval tools (searches) are specialized for semantic retrieval from topic documents through the Content API:
 
 ```python
 from cogsol.tools import BaseRetrievalTool
