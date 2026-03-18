@@ -296,8 +296,16 @@ class Command(BaseCommand):
         api_base = get_cognitive_api_base_url()
         api_key = os.environ.get("COGSOL_API_KEY")
         content_base = get_content_api_base_url() or api_base
-        if not api_base:
-            print("COGSOL_API_BASE is required in .env to import.")
+        if not api_key and not os.environ.get("COGSOL_AUTH_CLIENT_ID"):
+            print(
+                "Error: No API credentials found.\n"
+                "Set COGSOL_API_KEY in your .env file to authenticate with the CogSol API.\n"
+                "\n"
+                "To obtain your credentials:\n"
+                "  1. Visit https://onboarding.cogsol.ai\n"
+                "  2. Configure the service API key in the implantation portal\n"
+                "  3. Copy the key to COGSOL_API_KEY in your .env file"
+            )
             return 1
 
         client = CogSolClient(api_base, api_key=api_key, content_base_url=content_base)
