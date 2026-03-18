@@ -455,45 +455,68 @@ Note: If you omit `parameters` or leave it empty, the framework injects a defaul
 | `edit_available` | `bool` | `True` | Allow editing in UI |
 | `answer` | `bool` | `True` | Include in response |
 
-### Connecting to Retrievals
+### Creating a Search from Scratch
 
-Retrieval tools reference Content API retrievals defined in `data/retrievals.py`:
+Use this order when creating a new search capability:
+
+1. Define a Retrieval
+2. Create a Retrieval Tool (Search)
+3. Register the Search in the Agent
+
+#### Step 1: Define a Retrieval
+
+Purpose: configure semantic search over a created topic. 
+
+Location: `data/retrievals.py`
 
 ```python
-# data/retrievals.py
 from cogsol.content import BaseRetrieval
 from data.product_docs import ProductDocsTopic
+
 
 class ProductDocsRetrieval(BaseRetrieval):
     name = "product_docs_search"
     topic = ProductDocsTopic
     num_refs = 10
+```
 
-# agents/searches.py
+#### Step 2: Create a Retrieval Tool (Search)
+
+Purpose: connect the retrieval definition to a tool the agent can call.
+
+Location: `agents/searches.py`
+
+```python
 from cogsol.tools import BaseRetrievalTool
 from data.retrievals import ProductDocsRetrieval
 
+
 class ProductDocsSearch(BaseRetrievalTool):
-    name = "product_docs_search"
-    description = "Search the product documentation"
+    name = "search_product_docs"
+    description = "Search product documentation"
     retrieval = ProductDocsRetrieval()
+    parameters = []
 ```
 
-#### Using in Agents
+#### Step 3: Register the Search in the Agent
+
+Add the search tool to the agent `tools` list. Without this step, the search is not used by the agent.
 
 ```python
 from cogsol.agents import BaseAgent
-from .searches import ProductDocsSearch
+from ..searches import ProductDocsSearch
+
 
 class SupportAgent(BaseAgent):
     tools = [ProductDocsSearch()]
 ```
 
-**Important:** Before using retrieval tools, you must:
-1. Create the topic in `data/`
-2. Create the retrieval in `data/retrievals.py`
-3. Run `python manage.py makemigrations data`
-4. Run `python manage.py migrate data`
+After defining topic and retrieval classes, run:
+
+```bash
+python manage.py makemigrations data
+python manage.py migrate data
+```
 
 ---
 
