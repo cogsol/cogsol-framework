@@ -7,6 +7,7 @@ MCP server.  No third-party dependencies are required.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from typing import Any, cast
 from urllib import error, request
@@ -116,6 +117,30 @@ class MCPClient:
     # Internals
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _summarize_http_error(detail: str) -> str:
+        """Return a concise HTTP error detail suitable for terminal output."""
+        clean = (detail or "").strip()
+        if not clean:
+            return ""
+
+        # Cloudflare / proxy pages often return full HTML documents.
+        if "<html" in clean.lower() or "<!doctype html" in clean.lower():
+            title_match = re.search(r"<title>(.*?)</title>", clean, re.IGNORECASE | re.DOTALL)
+            if title_match:
+                title = re.sub(r"\s+", " ", title_match.group(1)).strip()
+                return f"HTML error page returned ({title})"
+            h1_match = re.search(r"<h1[^>]*>(.*?)</h1>", clean, re.IGNORECASE | re.DOTALL)
+            if h1_match:
+                heading = re.sub(r"\s+", " ", h1_match.group(1)).strip()
+                return f"HTML error page returned ({heading})"
+            return "HTML error page returned by remote server"
+
+        single_line = re.sub(r"\s+", " ", clean)
+        if len(single_line) > 240:
+            return f"{single_line[:237]}..."
+        return single_line
+
     def _make_request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         request_id = str(uuid.uuid4())
         payload: dict[str, Any] = {
@@ -165,7 +190,10 @@ class MCPClient:
 
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="ignore")
-            raise MCPClientError(f"HTTP {exc.code} {exc.reason}: {detail}") from exc
+            short_detail = self._summarize_http_error(detail)
+            if short_detail:
+                raise MCPClientError(f"HTTP {exc.code} {exc.reason}: {short_detail}") from exc
+            raise MCPClientError(f"HTTP {exc.code} {exc.reason}") from exc
         except error.URLError as exc:
             raise MCPClientError(f"Connection error: {exc.reason}") from exc
 

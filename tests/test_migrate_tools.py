@@ -5,8 +5,11 @@ Tests for tool code transformation during migrations.
 import ast
 from pathlib import Path
 
+import pytest
+
+from cogsol.core.api import CogSolAPIError
 from cogsol.management.commands.migrate import Command
-from cogsol.tools import BaseMCPTool
+from cogsol.tools import BaseMCPTool, BaseTool
 
 
 class TestToolScriptFromState:
@@ -158,6 +161,27 @@ class TestAssistantPayloadMCPTools:
 
         assert payload["tools"] == [123]
 
+    def test_raises_when_mcp_tool_is_not_published(self) -> None:
+        class MissingMCPTool(BaseMCPTool):
+            name = "missing_remote_tool"
+
+        class DemoAgent:
+            tools = [MissingMCPTool()]
+
+        with pytest.raises(CogSolAPIError, match="Run 'addmcptools' first"):
+            Command()._assistant_payload(
+                agent_name="DemoAgent",
+                definition={"fields": {}, "meta": {}},
+                cls=DemoAgent,
+                remote_ids={
+                    "tools": {},
+                    "retrieval_tools": {},
+                    "mcp_tools": {},
+                },
+                project_path=Path("."),
+                app="agents",
+            )
+
 
 class TestMCPToolRemoteIdHarvest:
     def test_extracts_ids_from_list_payload(self) -> None:
@@ -205,3 +229,195 @@ class TestMCPToolRemoteIdHarvest:
         assert remote["mcp_tools"]["ask_question"] == 903
         assert remote["mcp_tools"]["read_wiki_contents"] == 904
         assert remote["mcp_tools"]["read_wiki_structure"] == 905
+
+
+class TestToolScriptFromClass:
+    def test_handles_multiline_run_signature(self) -> None:
+        class WeatherTool(BaseTool):
+            def run(
+                self,
+                chat=None,
+                data=None,
+                latitude: float = 0.0,
+                longitude: float = 0.0,
+            ):
+                return {"lat": latitude, "lon": longitude}
+
+        script = Command()._tool_script_from_class(WeatherTool)
+
+        assert "latitude = params.get('latitude')" in script
+        assert "longitude = params.get('longitude')" in script
+        assert "chat=None" not in script
+        assert 'response = {"lat": latitude, "lon": longitude}' in script
+        ast.parse(script)
+
+
+class TestMigrateMCPAssociationOnly:
+    def test_hydrates_mcp_ids_and_associates_existing_tool(self, monkeypatch) -> None:
+        class PingMCPTool(BaseMCPTool):
+            name = "ping"
+
+        class DemoAgent:
+            tools = [PingMCPTool()]
+
+        captured_payloads: list[dict] = []
+
+        class FakeClient:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def list_mcp_servers(self):
+                return [{"id": 42, "name": "Demo MCP", "url": "https://mcp.demo"}]
+
+            def list_mcp_server_tools(self, _server_id):
+                return {"results": [{"id": 901, "name": "ping"}]}
+
+            def upsert_assistant(self, *, remote_id, payload):
+                captured_payloads.append(payload)
+                return remote_id or 100
+
+        monkeypatch.setattr("cogsol.management.commands.migrate.CogSolClient", FakeClient)
+
+        cmd = Command()
+        state = {
+            "tools": {},
+            "retrieval_tools": {},
+            "mcp_servers": {
+                "DemoMCPServer": {
+                    "fields": {
+                        "name": "Demo MCP",
+                        "auth_type": "none",
+                        "url": "https://mcp.demo",
+                    }
+                }
+            },
+            "mcp_tools": {
+                "PingMCPTool": {
+                    "fields": {
+                        "name": "ping",
+                        "server": "DemoMCPServer",
+                    }
+                }
+            },
+            "agents": {
+                "DemoAgent": {
+                    "fields": {
+                        "description": "Demo",
+                        "system_prompt": "Hi",
+                    },
+                    "meta": {},
+                }
+            },
+        }
+
+        remote, _ = cmd._sync_with_api(
+            api_base="https://api.invalid",
+            api_key=None,
+            state=state,
+            remote_ids=cmd._empty_remote(),
+            class_map={
+                "tools": {},
+                "retrieval_tools": {},
+                "mcp_servers": {},
+                "agents": {"DemoAgent": DemoAgent},
+            },
+            project_path=Path("."),
+            app="agents",
+            touched=None,
+        )
+
+        assert remote["mcp_tools"]["ping"] == 901
+        assert captured_payloads
+        assert captured_payloads[0]["tools"] == [901]
+
+    def test_hydration_skips_unrelated_remote_servers(self, monkeypatch) -> None:
+        class PingMCPTool(BaseMCPTool):
+            name = "ping"
+
+        class DemoAgent:
+            tools = [PingMCPTool()]
+
+        class FakeClient:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def list_mcp_servers(self):
+                return [
+                    {"id": 42, "name": "Demo MCP", "url": "https://mcp.demo"},
+                    {"id": 99, "name": "moweek", "url": "https://moweek.invalid/mcp"},
+                ]
+
+            def list_mcp_server_tools(self, server_id):
+                if int(server_id) == 99:
+                    raise AssertionError("Unrelated server should not be queried")
+                return {"results": [{"id": 901, "name": "ping"}]}
+
+            def upsert_assistant(self, *, remote_id, payload):
+                return remote_id or 100
+
+        monkeypatch.setattr("cogsol.management.commands.migrate.CogSolClient", FakeClient)
+
+        cmd = Command()
+        state = {
+            "tools": {},
+            "retrieval_tools": {},
+            "mcp_servers": {
+                "DemoMCPServer": {
+                    "fields": {
+                        "name": "Demo MCP",
+                        "auth_type": "none",
+                        "url": "https://mcp.demo",
+                    }
+                }
+            },
+            "mcp_tools": {
+                "PingMCPTool": {
+                    "fields": {
+                        "name": "ping",
+                        "server": "DemoMCPServer",
+                    }
+                }
+            },
+            "agents": {
+                "DemoAgent": {
+                    "fields": {
+                        "description": "Demo",
+                        "system_prompt": "Hi",
+                    },
+                    "meta": {},
+                }
+            },
+        }
+
+        remote, _ = cmd._sync_with_api(
+            api_base="https://api.invalid",
+            api_key=None,
+            state=state,
+            remote_ids=cmd._empty_remote(),
+            class_map={
+                "tools": {},
+                "retrieval_tools": {},
+                "mcp_servers": {},
+                "agents": {"DemoAgent": DemoAgent},
+            },
+            project_path=Path("."),
+            app="agents",
+            touched=None,
+        )
+
+        assert remote["mcp_tools"]["ping"] == 901
+
+
+class TestRollbackDeleteDispatch:
+    def test_delete_created_entry_supports_mcp_tool(self) -> None:
+        class FakeClient:
+            def __init__(self):
+                self.deleted = []
+
+            def delete_mcp_tool(self, tool_id):
+                self.deleted.append(("mcp_tool", tool_id))
+
+        client = FakeClient()
+        Command()._delete_created_entry(client, "mcp_tool", None, 77)
+
+        assert ("mcp_tool", 77) in client.deleted

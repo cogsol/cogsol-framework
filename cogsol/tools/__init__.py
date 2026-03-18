@@ -11,7 +11,7 @@ from typing import Any
 class BaseTool:
     name: str | None = None
     description: str | None = None
-    parameters: dict[str, Any] = {}
+    parameters: dict[str, Any] | None = None
 
     def __init__(self, name: str | None = None, description: str | None = None):
         if name:
@@ -22,6 +22,8 @@ class BaseTool:
             # Derive name from class (strip 'Tool' suffix if present)
             cls_name = self.__class__.__name__
             self.name = cls_name[:-4] if cls_name.endswith("Tool") else cls_name
+        # Avoid sharing mutable metadata across subclasses/instances.
+        self.parameters = dict(getattr(self, "parameters", {}) or {})
 
     def run(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover - placeholder
         raise NotImplementedError("Tool execution is not implemented in the CLI framework.")
@@ -57,7 +59,7 @@ class BaseFixedResponse:
 class BaseRetrievalTool:
     name: str | None = None
     description: str | None = None
-    parameters: list[dict[str, Any]] = []
+    parameters: list[dict[str, Any]] | None = None
     retrieval: str | None = None
     show_tool_message: bool = False
     show_assistant_message: bool = False
@@ -72,6 +74,8 @@ class BaseRetrievalTool:
         if not getattr(self, "name", None):
             cls_name = self.__class__.__name__
             self.name = cls_name[:-4] if cls_name.endswith("Tool") else cls_name
+        # Avoid sharing mutable metadata across subclasses/instances.
+        self.parameters = list(getattr(self, "parameters", []) or [])
 
     def __repr__(self) -> str:
         return f"<RetrievalTool {self.name or self.__class__.__name__}>"
@@ -99,7 +103,7 @@ class BaseMCPServer:
     name: str | None = None
     description: str | None = None
     url: str | None = None
-    headers: dict[str, str] = {}
+    headers: dict[str, str] | None = None
     protocol_version: str = "2025-03-26"
     client_name: str = "cognitive-mcp-client"
     client_version: str = "1.0.0"
@@ -121,6 +125,8 @@ class BaseMCPServer:
         if not getattr(self, "name", None):
             cls_name = self.__class__.__name__
             self.name = cls_name[:-9] if cls_name.endswith("MCPServer") else cls_name
+        # Avoid sharing mutable headers across subclasses/instances.
+        self.headers = dict(getattr(self, "headers", {}) or {})
 
     def __repr__(self) -> str:
         return f"<MCPServer {self.name or self.__class__.__name__}>"

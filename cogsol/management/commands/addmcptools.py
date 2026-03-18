@@ -23,10 +23,15 @@ sent write-only to the CogSol API, which stores it in Azure Key Vault.
 
 from __future__ import annotations
 
+import os
 import re
+import time
+import webbrowser
+from getpass import getpass
 from pathlib import Path
 from typing import Any
 
+from cogsol.core.api import CogSolAPIError, CogSolClient
 from cogsol.core.env import load_dotenv
 from cogsol.core.mcp import MCPClient
 from cogsol.management.base import BaseCommand
@@ -44,6 +49,8 @@ HEADER_KEYS = [
 ]
 
 AUTH_TYPES = ["none", "headers", "oauth2"]
+OAUTH_POLL_SECONDS_DEFAULT = 300
+OAUTH_POLL_INTERVAL_SECONDS = 2
 
 
 def _ask(prompt: str, default: str = "") -> str:
@@ -54,8 +61,11 @@ def _ask(prompt: str, default: str = "") -> str:
 
 
 def _ask_secret(prompt: str) -> str:
-    """Ask for a secret value (displayed as-is; use where getpass is unavailable)."""
-    value = input(f"{prompt} (leave blank to skip): ").strip()
+    """Ask for a secret value using masked terminal input when possible."""
+    try:
+        value = getpass(f"{prompt} (leave blank to skip): ").strip()
+    except Exception:
+        value = input(f"{prompt} (leave blank to skip): ").strip()
     return value
 
 
@@ -73,6 +83,21 @@ def _to_env_key(name: str) -> str:
     return f"MCP_{key}"
 
 
+def _py_str(value: str) -> str:
+    """Return a safe Python string literal for generated source."""
+    return repr(value)
+
+
+def _oauth_config(client_id: str, scopes: str) -> dict[str, Any]:
+    """Build oauth_config payload for the API, omitting empty values."""
+    cfg: dict[str, Any] = {}
+    if client_id:
+        cfg["client_id"] = client_id
+    if scopes:
+        cfg["scopes"] = scopes
+    return cfg
+
+
 class Command(BaseCommand):
     help = "Interactively configure an MCP server and select tools."
 
@@ -82,10 +107,331 @@ class Command(BaseCommand):
             default="agents",
             help="App folder (default: agents).",
         )
+        parser.add_argument(
+            "--oauth-timeout",
+            default=OAUTH_POLL_SECONDS_DEFAULT,
+            type=int,
+            help="Seconds to wait for OAuth completion when browser flow is triggered.",
+        )
+
+    def _extract_results(self, payload: Any) -> list[dict[str, Any]]:
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+        if isinstance(payload, dict):
+            if isinstance(payload.get("results"), list):
+                return [item for item in payload["results"] if isinstance(item, dict)]
+            if isinstance(payload.get("tools"), list):
+                return [item for item in payload["tools"] if isinstance(item, dict)]
+        return []
+
+    def _norm(self, value: Any) -> str:
+        text = str(value or "")
+        return re.sub(r"\s+", " ", text).strip().casefold()
+
+    def _find_remote_server(
+        self,
+        *,
+        client: CogSolClient,
+        server_name: str,
+        server_url: str,
+    ) -> dict[str, Any] | None:
+        servers = self._extract_results(client.list_mcp_servers())
+        server_name_n = self._norm(server_name)
+        server_url_n = self._norm(str(server_url).rstrip("/"))
+
+        exact = [
+            s
+            for s in servers
+            if self._norm(s.get("name")) == server_name_n
+            and self._norm(str(s.get("url", "")).rstrip("/")) == server_url_n
+        ]
+        if exact:
+            return exact[0]
+
+        name_match = [s for s in servers if self._norm(s.get("name")) == server_name_n]
+        if len(name_match) == 1:
+            return name_match[0]
+
+        url_match = [
+            s for s in servers if self._norm(str(s.get("url", "")).rstrip("/")) == server_url_n
+        ]
+        if len(url_match) == 1:
+            return url_match[0]
+
+        # If duplicates exist for the same URL, prefer oauth2 and most recently updated.
+        if len(url_match) > 1:
+            oauth_candidates = [s for s in url_match if self._norm(s.get("auth_type")) == "oauth2"]
+            candidates = oauth_candidates or url_match
+            candidates.sort(
+                key=lambda s: str(s.get("updated_at") or s.get("created_at") or ""),
+                reverse=True,
+            )
+            return candidates[0]
+
+        if len(name_match) > 1:
+            name_match.sort(
+                key=lambda s: str(s.get("updated_at") or s.get("created_at") or ""),
+                reverse=True,
+            )
+            return name_match[0]
+
+        return None
+
+    def _wait_for_oauth_connected(
+        self,
+        *,
+        client: CogSolClient,
+        server_id: int,
+        timeout_seconds: int,
+    ) -> bool:
+        start = time.time()
+        while time.time() - start < timeout_seconds:
+            try:
+                data = client.get_mcp_server(server_id) or {}
+                status = str(data.get("oauth_status", "")).lower()
+                if status == "connected":
+                    return True
+            except CogSolAPIError:
+                # Keep polling; callback might still be processing.
+                pass
+            time.sleep(OAUTH_POLL_INTERVAL_SECONDS)
+        return False
+
+    def _is_oauth_reauthorization_error(self, exc: CogSolAPIError) -> bool:
+        return "oauth re-authorization required" in str(exc).lower()
+
+    def _start_oauth_authorization(
+        self,
+        *,
+        client: CogSolClient,
+        server_id: int,
+        server_name: str,
+        oauth_timeout: int,
+    ) -> None:
+        auth_payload = client.get_mcp_oauth_authorization_url(server_id) or {}
+        authorization_url = auth_payload.get("authorization_url")
+        if not authorization_url:
+            raise CogSolAPIError(
+                "OAuth authorization URL could not be generated for " f"MCP server '{server_name}'."
+            )
+
+        opened = webbrowser.open(str(authorization_url), new=1, autoraise=True)
+        if not opened:
+            print("  Could not auto-open browser. Open this URL manually:")
+            print(f"  {authorization_url}")
+
+        connected = self._wait_for_oauth_connected(
+            client=client,
+            server_id=server_id,
+            timeout_seconds=max(5, int(oauth_timeout)),
+        )
+        if not connected:
+            raise CogSolAPIError(
+                "OAuth authorization did not complete within timeout. "
+                "Please finish OAuth in browser and retry addmcptools."
+            )
+
+    def _oauth_assisted_discovery(
+        self,
+        *,
+        server_name: str,
+        server_description: str,
+        server_url: str,
+        oauth_client_id: str,
+        oauth_client_secret: str,
+        oauth_scopes: str,
+        oauth_timeout: int,
+    ) -> list[dict[str, Any]]:
+        api_base = os.environ.get("COGSOL_API_BASE")
+        api_key = os.environ.get("COGSOL_API_KEY")
+        if not api_base:
+            print("COGSOL_API_BASE is required to run assisted OAuth tool discovery.")
+            return []
+
+        api_client = CogSolClient(base_url=api_base, api_key=api_key)
+        remote = self._find_remote_server(
+            client=api_client,
+            server_name=server_name,
+            server_url=server_url,
+        )
+        if not remote or "id" not in remote:
+            payload: dict[str, Any] = {
+                "name": server_name,
+                "description": server_description,
+                "url": server_url,
+                "headers": {},
+                "protocol_version": "2025-03-26",
+                "client_name": "cognitive-mcp-client",
+                "client_version": "1.0.0",
+                "active": True,
+                "auth_type": "oauth2",
+                "oauth_config": _oauth_config(oauth_client_id, oauth_scopes),
+            }
+            if oauth_client_secret:
+                payload["oauth_client_secret"] = oauth_client_secret
+            try:
+                print("MCP server not found in API. Creating it now for OAuth discovery...")
+                server_id = int(api_client.upsert_mcp_server(remote_id=None, payload=payload))
+            except CogSolAPIError as exc:
+                print(
+                    "Could not create MCP server in CogSol API during OAuth onboarding.\n"
+                    f"Details: {exc}"
+                )
+                return []
+        else:
+            server_id = int(remote["id"])
+
+        try:
+            print("Discovering OAuth metadata from CogSol API...")
+            api_client.discover_mcp_oauth(server_id)
+            auth_payload = api_client.get_mcp_oauth_authorization_url(server_id) or {}
+            authorization_url = auth_payload.get("authorization_url")
+            if not authorization_url:
+                print("Could not obtain OAuth authorization URL from the API.")
+                return []
+
+            print("Opening browser for OAuth authorization...")
+            opened = webbrowser.open(str(authorization_url), new=1, autoraise=True)
+            if not opened:
+                print("Could not auto-open browser. Open this URL manually:")
+                print(str(authorization_url))
+
+            print(f"Waiting for OAuth completion (timeout: {oauth_timeout}s)...")
+            connected = self._wait_for_oauth_connected(
+                client=api_client,
+                server_id=server_id,
+                timeout_seconds=max(5, int(oauth_timeout)),
+            )
+            if not connected:
+                print("OAuth authorization timeout. You can retry addmcptools after authorizing.")
+                return []
+
+            tools_payload = api_client.list_mcp_server_tools(server_id)
+            tools = self._extract_results(tools_payload)
+            if not tools:
+                print("OAuth connected, but no tools were returned by the MCP server.")
+                return []
+
+            normalized: list[dict[str, Any]] = []
+            for tool in tools:
+                if not tool.get("name"):
+                    continue
+                normalized.append(
+                    {
+                        "name": str(tool.get("name")),
+                        "description": str(tool.get("description") or ""),
+                        "input_schema": tool.get("input_schema") or tool.get("inputSchema") or {},
+                    }
+                )
+            return normalized
+        except CogSolAPIError as exc:
+            print(f"OAuth discovery via CogSol API failed: {exc}")
+            return []
+
+    def _publish_to_cognitive(
+        self,
+        *,
+        server_name: str,
+        server_description: str,
+        server_url: str,
+        auth_type: str,
+        headers: dict[str, str],
+        oauth_client_id: str,
+        oauth_client_secret: str,
+        oauth_scopes: str,
+        selected_tools: list[dict[str, Any]],
+        oauth_timeout: int,
+    ) -> None:
+        api_base = os.environ.get("COGSOL_API_BASE")
+        api_key = os.environ.get("COGSOL_API_KEY")
+        if not api_base:
+            raise CogSolAPIError(
+                "COGSOL_API_BASE is required. addmcptools now publishes MCP servers/tools "
+                "directly to Cognitive."
+            )
+
+        client = CogSolClient(base_url=api_base, api_key=api_key)
+        existing = self._find_remote_server(
+            client=client,
+            server_name=server_name,
+            server_url=server_url,
+        )
+        remote_id = int(existing["id"]) if existing and existing.get("id") else None
+
+        payload: dict[str, Any] = {
+            "name": server_name,
+            "description": server_description,
+            "url": server_url,
+            "headers": headers if auth_type == "headers" else {},
+            "protocol_version": "2025-03-26",
+            "client_name": "cognitive-mcp-client",
+            "client_version": "1.0.0",
+            "active": True,
+            "auth_type": auth_type,
+        }
+        if auth_type == "oauth2":
+            payload["oauth_config"] = _oauth_config(oauth_client_id, oauth_scopes)
+            if oauth_client_secret:
+                payload["oauth_client_secret"] = oauth_client_secret
+
+        server_id = int(client.upsert_mcp_server(remote_id=remote_id, payload=payload))
+        action = "Updated" if remote_id else "Created"
+        print(f"  {action} MCP server in Cognitive (id={server_id}).")
+
+        if auth_type == "oauth2":
+            print(f"  Refreshing OAuth metadata for server id={server_id}...")
+            force_authorization = False
+            try:
+                client.discover_mcp_oauth(server_id)
+            except CogSolAPIError as exc:
+                if self._is_oauth_reauthorization_error(exc):
+                    print(
+                        "  OAuth re-authorization required while refreshing metadata; "
+                        "continuing with authorization flow..."
+                    )
+                    force_authorization = True
+                else:
+                    raise
+
+            server_data = client.get_mcp_server(server_id) or {}
+            status = str(server_data.get("oauth_status", "")).lower()
+            if force_authorization or status != "connected":
+                print("  OAuth server is not connected yet. Starting authorization flow...")
+                self._start_oauth_authorization(
+                    client=client,
+                    server_id=server_id,
+                    server_name=server_name,
+                    oauth_timeout=oauth_timeout,
+                )
+
+        tool_names = [str(t.get("name")) for t in selected_tools if t.get("name")]
+        if not tool_names:
+            print("  No MCP tools selected to sync in Cognitive.")
+            return
+
+        try:
+            client.sync_mcp_server_tools(server_id, tool_names)
+        except CogSolAPIError as exc:
+            if auth_type != "oauth2" or not self._is_oauth_reauthorization_error(exc):
+                raise
+
+            print(
+                "  OAuth re-authorization required during tools sync. "
+                "Starting recovery flow and retrying once..."
+            )
+            self._start_oauth_authorization(
+                client=client,
+                server_id=server_id,
+                server_name=server_name,
+                oauth_timeout=oauth_timeout,
+            )
+            client.sync_mcp_server_tools(server_id, tool_names)
+        print(f"  Synced {len(tool_names)} MCP tool(s) in Cognitive.")
 
     def handle(self, project_path: Path | None, **options: Any) -> int:  # noqa: C901
         assert project_path is not None, "project_path is required"
         app = str(options.get("app") or "agents")
+        oauth_timeout = int(options.get("oauth_timeout") or OAUTH_POLL_SECONDS_DEFAULT)
 
         load_dotenv(project_path / ".env")
 
@@ -172,6 +518,17 @@ class Command(BaseCommand):
         tools = client.list_tools() if connected else []
         client.disconnect()
 
+        if auth_type == "oauth2" and not tools:
+            tools = self._oauth_assisted_discovery(
+                server_name=server_name,
+                server_description=server_description,
+                server_url=server_url,
+                oauth_client_id=oauth_client_id,
+                oauth_client_secret=oauth_client_secret,
+                oauth_scopes=oauth_scopes,
+                oauth_timeout=oauth_timeout,
+            )
+
         if not connected and auth_type != "oauth2":
             print("Failed to connect to the MCP server. Check URL and headers.")
             return 1
@@ -213,10 +570,9 @@ class Command(BaseCommand):
         else:
             if auth_type == "oauth2":
                 print(
-                    "Could not list tools without authorization (expected for OAuth 2.1 servers).\n"
+                    "Could not list tools yet (OAuth still required or unavailable).\n"
                     "The server definition will be created without tool entries.\n"
-                    "After running `migrate`, complete the OAuth authorization flow from the\n"
-                    "CogSol portal, then re-run `addmcptools` or add tools manually.\n"
+                    "Complete OAuth authorization and re-run `addmcptools`, or add tools manually.\n"
                 )
             else:
                 print("The server reported no tools.")
@@ -234,10 +590,10 @@ class Command(BaseCommand):
 
         if auth_type == "none":
             server_body_lines = [
-                f'    name = "{server_name}"',
-                f'    description = "{server_description}"',
+                f"    name = {_py_str(server_name)}",
+                f"    description = {_py_str(server_description)}",
                 '    auth_type = "none"',
-                f'    url = "{server_url}"',
+                f"    url = {_py_str(server_url)}",
             ]
 
         elif auth_type == "headers":
@@ -247,14 +603,16 @@ class Command(BaseCommand):
                 env_key = _to_env_key(f"{server_name}_{hk}")
                 header_env_entries[env_key] = hv
                 env_new_vars[env_key] = hv
-                header_attr_lines.append(f'        "{hk}": os.environ.get("{env_key}", ""),')
+                header_attr_lines.append(
+                    f"        {_py_str(hk)}: os.environ.get({_py_str(env_key)}, ''),"
+                )
             headers_block = (
                 "{\n" + "\n".join(header_attr_lines) + "\n    }" if header_attr_lines else "{}"
             )
             server_body_lines = [
-                f'    name = "{server_name}"',
-                f'    description = "{server_description}"',
-                f'    url = "{server_url}"',
+                f"    name = {_py_str(server_name)}",
+                f"    description = {_py_str(server_description)}",
+                f"    url = {_py_str(server_url)}",
                 f"    headers = {headers_block}",
             ]
 
@@ -266,18 +624,18 @@ class Command(BaseCommand):
             if oauth_scopes:
                 env_new_vars[oauth_scopes_env] = oauth_scopes
             server_body_lines = [
-                f'    name = "{server_name}"',
-                f'    description = "{server_description}"',
+                f"    name = {_py_str(server_name)}",
+                f"    description = {_py_str(server_description)}",
                 '    auth_type = "oauth2"',
-                f'    url = "{server_url}"',
+                f"    url = {_py_str(server_url)}",
             ]
             if oauth_client_id:
                 server_body_lines.append(
-                    f'    oauth_client_id = os.environ.get("{oauth_cid_env}", "")'
+                    f"    oauth_client_id = os.environ.get({_py_str(oauth_cid_env)}, '')"
                 )
             if oauth_scopes:
                 server_body_lines.append(
-                    f'    oauth_scopes = os.environ.get("{oauth_scopes_env}", "")'
+                    f"    oauth_scopes = os.environ.get({_py_str(oauth_scopes_env)}, '')"
                 )
 
         server_body = "\n".join(server_body_lines)
@@ -293,7 +651,7 @@ class Command(BaseCommand):
             header_lines
             + [
                 f"class {server_cls_name}(BaseMCPServer):",
-                f'    """MCP server: {server_name}."""',
+                '    """MCP server definition."""',
                 "",
                 server_body,
                 "",
@@ -313,10 +671,10 @@ class Command(BaseCommand):
                         "",
                         "",
                         f"class {t_cls_name}(BaseMCPTool):",
-                        f'    """MCP tool: {t_name}."""',
+                        '    """MCP tool definition."""',
                         "",
-                        f'    name = "{t_name}"',
-                        f'    description = """{t_desc}"""',
+                        f"    name = {_py_str(t_name)}",
+                        f"    description = {_py_str(t_desc)}",
                         f"    server = {server_cls_name}",
                         "",
                     ]
@@ -418,12 +776,31 @@ class Command(BaseCommand):
         else:
             print("  .env already up-to-date.")
 
+        print(
+            "\nPublishing MCP server/tools to Cognitive now "
+            "(this updates what appears in the portal immediately)..."
+        )
+        try:
+            self._publish_to_cognitive(
+                server_name=server_name,
+                server_description=server_description,
+                server_url=server_url,
+                auth_type=auth_type,
+                headers=headers,
+                oauth_client_id=oauth_client_id,
+                oauth_client_secret=oauth_client_secret,
+                oauth_scopes=oauth_scopes,
+                selected_tools=selected_tools,
+                oauth_timeout=oauth_timeout,
+            )
+        except CogSolAPIError as exc:
+            print(f"Failed to publish MCP catalog to Cognitive: {exc}")
+            return 1
+
         if auth_type == "oauth2" and oauth_client_secret:
             print(
                 "\n  ℹ  OAuth client_secret was entered but NOT written to .env.\n"
-                "     It will be sent to the CogSol API when you run `python manage.py migrate`.\n"
-                "     (Stored securely in Azure Key Vault by the backend.)\n"
-                "     Please re-enter it if prompted during `migrate`."
+                "     It was sent securely to the CogSol API and stored in Azure Key Vault."
             )
 
         print(
@@ -431,5 +808,5 @@ class Command(BaseCommand):
             "'python manage.py migrate'."
         )
         if auth_type == "oauth2":
-            print("After migrate, complete the OAuth authorization flow from the CogSol portal.")
+            print("OAuth authorization was completed (or attempted) during addmcptools.")
         return 0

@@ -23,7 +23,7 @@ from cogsol.core.loader import _extract_tool_params, collect_classes, collect_co
 from cogsol.db import migrations
 from cogsol.management.base import BaseCommand
 from cogsol.prompts import Prompt
-from cogsol.tools import BaseTool
+from cogsol.tools import BaseMCPTool, BaseTool
 
 
 def _tool_key(obj: Any) -> str:
@@ -61,7 +61,7 @@ class Command(BaseCommand):
     def handle(self, project_path: Path | None, **options: Any) -> int:
         assert project_path is not None, "project_path is required"
         app = options.get("app")
-        apps = [str(app)] if app else ["agents", "data"]
+        apps = [str(app)] if app else ["data", "agents"]
 
         load_dotenv(project_path / ".env")
         api_base = get_cognitive_api_base_url()
@@ -222,6 +222,95 @@ class Command(BaseCommand):
             "retrievals": {},
             "metadata_configs": {},
         }
+
+    def _has_state_entries(self, state: dict[str, Any]) -> bool:
+        for value in state.values():
+            if isinstance(value, dict) and value:
+                return True
+        return False
+
+    def _extract_results(self, payload: Any) -> list[dict[str, Any]]:
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+        if isinstance(payload, dict):
+            if isinstance(payload.get("results"), list):
+                return [item for item in payload["results"] if isinstance(item, dict)]
+            if isinstance(payload.get("tools"), list):
+                return [item for item in payload["tools"] if isinstance(item, dict)]
+        return []
+
+    def _norm_text(self, value: Any) -> str:
+        return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
+
+    def _mcp_server_hydration_targets(
+        self,
+        *,
+        state: dict[str, Any],
+        remote_ids: dict[str, Any],
+    ) -> tuple[set[int], set[str]]:
+        """Resolve server ids/names that are relevant for this project's MCP references."""
+        refs: set[str] = set()
+        for server_key, definition in (state.get("mcp_servers", {}) or {}).items():
+            refs.add(str(server_key))
+            fields = definition.get("fields", {}) if definition else {}
+            if fields.get("name"):
+                refs.add(str(fields["name"]))
+
+        for definition in (state.get("mcp_tools", {}) or {}).values():
+            fields = definition.get("fields", {}) if definition else {}
+            server_ref = fields.get("server")
+            if server_ref:
+                refs.add(str(server_ref))
+
+        target_names = {self._norm_text(ref) for ref in refs if str(ref).strip()}
+
+        target_ids: set[int] = set()
+        remote_servers = remote_ids.get("mcp_servers", {}) or {}
+        for ref in refs:
+            remote_id = remote_servers.get(ref)
+            if isinstance(remote_id, int):
+                target_ids.add(remote_id)
+            elif isinstance(remote_id, str) and remote_id.isdigit():
+                target_ids.add(int(remote_id))
+
+        return target_ids, target_names
+
+    def _hydrate_remote_mcp_tool_ids(
+        self,
+        *,
+        client: CogSolClient,
+        remote_ids: dict[str, Any],
+        target_server_ids: set[int] | None = None,
+        target_server_names: set[str] | None = None,
+    ) -> None:
+        """Populate ``remote_ids['mcp_tools']`` from current Cognitive MCP catalog."""
+        ids_filter = set(target_server_ids or set())
+        names_filter = {self._norm_text(name) for name in (target_server_names or set())}
+        if not ids_filter and not names_filter:
+            return
+
+        servers = self._extract_results(client.list_mcp_servers())
+        for server in servers:
+            server_id = server.get("id")
+            if server_id is None:
+                continue
+            try:
+                server_id_int = int(server_id)
+            except (TypeError, ValueError):
+                continue
+
+            server_name_n = self._norm_text(server.get("name"))
+            if server_id_int not in ids_filter and server_name_n not in names_filter:
+                continue
+            try:
+                payload = client.list_mcp_server_tools(server_id_int)
+            except CogSolAPIError as exc:
+                print(
+                    "  Warning: could not list MCP tools for"
+                    f" server '{server.get('name', server_id_int)}': {exc}"
+                )
+                continue
+            self._update_mcp_tool_remote_ids(remote_ids, payload)
 
     def _touched_entities(self, operations: list[Any]) -> dict[str, set[str]]:
         touched: dict[str, set[str]] = {}
@@ -555,71 +644,23 @@ class Command(BaseCommand):
                     if explicit_name:
                         new_remote["retrieval_tools"][explicit_name] = new_id
 
-            # Upsert MCP servers (must come before MCP tools).
-            for srv_name, definition in state.get("mcp_servers", {}).items():
-                if touched is not None and srv_name not in touched.get("mcp_servers", set()):
-                    continue
-                fields = definition.get("fields", {}) if definition else {}
-                cls = class_map.get("mcp_servers", {}).get(srv_name)
+            if touched is None or touched.get("mcp_servers") or touched.get("mcp_tools"):
+                print(
+                    "  MCP server/tool migration operations are skipped in 'migrate'. "
+                    "Use 'addmcptools' to publish MCP catalog to Cognitive."
+                )
 
-                def _cls_or_field(
-                    attr: str,
-                    default: Any = None,
-                    cls_ref: type[Any] | None = cls,
-                    fields_ref: dict[str, Any] = fields,
-                ) -> Any:
-                    if cls_ref is not None and hasattr(cls_ref, attr):
-                        return getattr(cls_ref, attr)
-                    return fields_ref.get(attr, default)
-
-                auth_type = _cls_or_field("auth_type", "headers")
-                payload = {
-                    "name": fields.get("name", srv_name),
-                    "description": fields.get("description") or "",
-                    "url": _cls_or_field("url", ""),
-                    "headers": _cls_or_field("headers", {}) if auth_type != "oauth2" else {},
-                    "protocol_version": fields.get("protocol_version", "2025-03-26"),
-                    "client_name": fields.get("client_name", "cognitive-mcp-client"),
-                    "client_version": fields.get("client_version", "1.0.0"),
-                    "active": fields.get("active", True),
-                    "auth_type": auth_type,
-                }
-                # Build oauth_config for OAuth 2.1 servers
-                if auth_type == "oauth2":
-                    oauth_config: dict[str, Any] = {}
-                    client_id = _cls_or_field("oauth_client_id")
-                    if client_id:
-                        oauth_config["client_id"] = client_id
-                    scopes = _cls_or_field("oauth_scopes")
-                    if scopes:
-                        oauth_config["scopes"] = scopes
-                    payload["oauth_config"] = oauth_config
-                remote_id = new_remote.get("mcp_servers", {}).get(srv_name)
-                new_id = client.upsert_mcp_server(remote_id=remote_id, payload=payload)
-                if not remote_id:
-                    created.append(("mcp_server", None, new_id))
-                new_remote.setdefault("mcp_servers", {})[srv_name] = new_id
-                if cls is not None:
-                    new_remote["mcp_servers"][cls.__name__] = new_id
-
-            # Sync MCP tools (grouped by server).
-            mcp_tools_by_server: dict[str, list[str]] = {}
-            for tool_name, definition in state.get("mcp_tools", {}).items():
-                if touched is not None and tool_name not in touched.get("mcp_tools", set()):
-                    continue
-                fields = definition.get("fields", {}) if definition else {}
-                server_ref = fields.get("server", "")
-                mcp_tools_by_server.setdefault(server_ref, []).append(fields.get("name", tool_name))
-            for server_ref, tool_names in mcp_tools_by_server.items():
-                server_remote_id = new_remote.get("mcp_servers", {}).get(server_ref)
-                if not server_remote_id:
-                    print(f"  Warning: MCP server '{server_ref}' not found for tools sync.")
-                    continue
-                result = client.sync_mcp_server_tools(server_remote_id, tool_names)
-                had_ids = self._update_mcp_tool_remote_ids(new_remote, result)
-                if not had_ids:
-                    listed = client.list_mcp_server_tools(server_remote_id)
-                    self._update_mcp_tool_remote_ids(new_remote, listed)
+            # Migrate only needs MCP tool ids for assistant associations.
+            target_ids, target_names = self._mcp_server_hydration_targets(
+                state=state,
+                remote_ids=new_remote,
+            )
+            self._hydrate_remote_mcp_tool_ids(
+                client=client,
+                remote_ids=new_remote,
+                target_server_ids=target_ids,
+                target_server_names=target_names,
+            )
 
             # Upsert agents.
             for agent_name, definition in state.get("agents", {}).items():
@@ -643,19 +684,21 @@ class Command(BaseCommand):
 
             # Upsert FAQs (common questions), fixed responses, lessons per agent.
             sync_related = True
+            sync_all_related = touched is None
             faq_filter: dict[str, set[str]] = {}
             fixed_filter: dict[str, set[str]] = {}
             lesson_filter: dict[str, set[str]] = {}
-            if touched is not None:
-                for key in touched.get("faqs", set()):
+            if not sync_all_related:
+                touched_map = touched or {}
+                for key in touched_map.get("faqs", set()):
                     agent, _, name = key.partition("::")
                     if agent and name:
                         faq_filter.setdefault(agent, set()).add(name)
-                for key in touched.get("fixed_responses", set()):
+                for key in touched_map.get("fixed_responses", set()):
                     agent, _, name = key.partition("::")
                     if agent and name:
                         fixed_filter.setdefault(agent, set()).add(name)
-                for key in touched.get("lessons", set()):
+                for key in touched_map.get("lessons", set()):
                     agent, _, name = key.partition("::")
                     if agent and name:
                         lesson_filter.setdefault(agent, set()).add(name)
@@ -675,21 +718,25 @@ class Command(BaseCommand):
                 new_remote.setdefault("fixed_responses", {}).setdefault(agent_name, {})
                 new_remote.setdefault("lessons", {}).setdefault(agent_name, {})
 
-                for faq_obj in getattr(agent_cls, "faqs", []) or []:
-                    payload = self._faq_payload(faq_obj)
-                    if faq_filter.get(agent_name) and payload["name"] not in faq_filter[agent_name]:
-                        continue
-                    remote_id = new_remote["faqs"][agent_name].get(payload["name"])
-                    new_id = client.upsert_common_question(
-                        assistant_id=assistant_id,
-                        remote_id=remote_id,
-                        payload=payload,
-                    )
-                    if not remote_id:
-                        created.append(("faq", assistant_id, new_id))
-                    new_remote["faqs"][agent_name][payload["name"]] = new_id
+                if sync_all_related or faq_filter:
+                    for faq_obj in getattr(agent_cls, "faqs", []) or []:
+                        payload = self._faq_payload(faq_obj)
+                        if (
+                            faq_filter.get(agent_name)
+                            and payload["name"] not in faq_filter[agent_name]
+                        ):
+                            continue
+                        remote_id = new_remote["faqs"][agent_name].get(payload["name"])
+                        new_id = client.upsert_common_question(
+                            assistant_id=assistant_id,
+                            remote_id=remote_id,
+                            payload=payload,
+                        )
+                        if not remote_id:
+                            created.append(("faq", assistant_id, new_id))
+                        new_remote["faqs"][agent_name][payload["name"]] = new_id
 
-                if fixed_filter:
+                if sync_all_related or fixed_filter:
                     for fx_obj in getattr(agent_cls, "fixed_responses", []) or []:
                         payload = self._fixed_payload(fx_obj)
                         if (
@@ -707,7 +754,7 @@ class Command(BaseCommand):
                             created.append(("fixed", assistant_id, new_id))
                         new_remote["fixed_responses"][agent_name][payload["name"]] = new_id
 
-                if lesson_filter:
+                if sync_all_related or lesson_filter:
                     for lesson_obj in getattr(agent_cls, "lessons", []) or []:
                         payload = self._lesson_payload(lesson_obj)
                         if (
@@ -733,23 +780,7 @@ class Command(BaseCommand):
                     self._delete_created_entry(client, kind, assistant_id, obj_id)
                 except Exception as e:
                     print(f"Warning: failed to rollback {kind} {obj_id}: {e}")
-                    try:
-                        if kind == "faq" and assistant_id is not None:
-                            client.delete_common_question(assistant_id, obj_id)
-                        elif kind == "fixed" and assistant_id is not None:
-                            client.delete_fixed_response(assistant_id, obj_id)
-                        elif kind == "lesson" and assistant_id is not None:
-                            client.delete_lesson(assistant_id, obj_id)
-                        elif kind == "assistant":
-                            client.delete_assistant(obj_id)
-                        elif kind == "tool":
-                            client.delete_script(obj_id)
-                        elif kind == "retrieval_tool":
-                            client.delete_retrieval_tool(obj_id)
-                        elif kind == "mcp_server":
-                            client.delete_mcp_server(obj_id)
-                    except Exception:
-                        continue
+                    continue
             raise
 
     def _update_mcp_tool_remote_ids(self, remote_ids: dict[str, Any], payload: Any) -> bool:
@@ -795,6 +826,10 @@ class Command(BaseCommand):
             client.delete_script(obj_id)
         elif kind == "retrieval_tool":
             client.delete_retrieval_tool(obj_id)
+        elif kind == "mcp_server":
+            client.delete_mcp_server(obj_id)
+        elif kind == "mcp_tool":
+            client.delete_mcp_tool(obj_id)
 
     def _delete_content_created_entry(
         self, client: CogSolClient, kind: str, parent_id: int | None, obj_id: int
@@ -1026,6 +1061,9 @@ class Command(BaseCommand):
         pretools = getattr(cls, "pretools", []) if cls else []
 
         def _resolve_tool_id(t) -> int | None:
+            is_mcp_tool = isinstance(t, BaseMCPTool) or (
+                isinstance(t, type) and issubclass(t, BaseMCPTool)
+            )
             candidates = [
                 getattr(t, "name", None),
                 _tool_key(t),
@@ -1052,6 +1090,14 @@ class Command(BaseCommand):
                     return mcp_tool_id
                 if isinstance(mcp_tool_id, str) and mcp_tool_id.isdigit():
                     return int(mcp_tool_id)
+
+            if is_mcp_tool:
+                tool_name = next((str(n) for n in candidates if n), "<unknown>")
+                raise CogSolAPIError(
+                    "Assistant references MCP tool '"
+                    f"{tool_name}' that is not present in Cognitive. "
+                    "Run 'addmcptools' first to publish MCP server/tools."
+                )
             return None
 
         tool_ids: list[int] = []
@@ -1297,16 +1343,34 @@ class Command(BaseCommand):
         while lines and lines[0].lstrip().startswith("@"):
             lines.pop(0)
 
-        # Find def line
-        def_idx = None
-        for i, line in enumerate(lines):
-            if line.lstrip().startswith("def "):
-                def_idx = i
-                break
-        if def_idx is None:
-            return textwrap.dedent(source)
+        try:
+            fn_tree = ast.parse(source)
+            run_node = next(
+                (
+                    node
+                    for node in fn_tree.body
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                ),
+                None,
+            )
+        except Exception:
+            run_node = None
 
-        body = "\n".join(lines[def_idx + 1 :])
+        if run_node is not None and run_node.body:
+            body_start = run_node.body[0].lineno - 1
+            body_end = run_node.end_lineno or run_node.body[-1].lineno
+            body = "\n".join(lines[body_start:body_end])
+        else:
+            # Fallback for unusual source layouts.
+            def_idx = None
+            for i, line in enumerate(lines):
+                if line.lstrip().startswith("def "):
+                    def_idx = i
+                    break
+            if def_idx is None:
+                return textwrap.dedent(source)
+            body = "\n".join(lines[def_idx + 1 :])
+
         dedented = textwrap.dedent(body)
         dedented = self._replace_self_calls(dedented, helper_names)
 

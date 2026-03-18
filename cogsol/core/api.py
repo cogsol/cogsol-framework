@@ -428,6 +428,18 @@ class CogSolClient:
         """Delete an MCP server by id."""
         self.request("DELETE", f"/mcp-servers/{server_id}/")
 
+    def get_mcp_server(self, server_id: int) -> Any:
+        """Retrieve an MCP server by id."""
+        return self.request("GET", f"/mcp-servers/{server_id}/")
+
+    def discover_mcp_oauth(self, server_id: int) -> Any:
+        """Discover OAuth metadata for an MCP server."""
+        return self.request("POST", f"/mcp-servers/{server_id}/oauth/discover/")
+
+    def get_mcp_oauth_authorization_url(self, server_id: int) -> Any:
+        """Get OAuth authorization URL for an MCP server."""
+        return self.request("GET", f"/mcp-servers/{server_id}/oauth/authorize/")
+
     def list_mcp_server_tools(self, server_id: int) -> Any:
         """List tools currently configured on an MCP server."""
         return self.request("GET", f"/mcp-servers/{server_id}/tools/")
