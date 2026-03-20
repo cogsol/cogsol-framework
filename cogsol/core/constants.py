@@ -63,6 +63,14 @@ def get_content_api_base_url() -> str:
     return _get_env_var(COGSOL_CONTENT_API_BASE_VAR) or get_default_content_api_base_url()
 
 
+AUTH_SCOPE_IDS: Final[dict[str, str]] = {
+    "development": "02d621e7-40ef-4a46-a110-4214e1234abf",
+    "testing": "ce62b03a-7eca-4d4a-9c7a-2f1e001fce29",
+    "implantation": "9efa4bc6-2b2b-4208-8c88-7a218c7061d6",
+    "production": "92c0d1cc-127b-4ec5-9be4-960c13c7aecc",
+}
+
+
 __all__ = [
     "COGSOL_ENV_VAR",
     "COGSOL_API_BASE_VAR",
@@ -76,4 +84,5 @@ __all__ = [
     "get_default_content_api_base_url",
     "get_cognitive_api_base_url",
     "get_content_api_base_url",
+    "AUTH_SCOPE_IDS",
 ]
