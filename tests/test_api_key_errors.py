@@ -38,6 +38,45 @@ def _bare_client() -> CogSolClient:
 # ---------------------------------------------------------------------------
 
 
+class TestInvalidCogsolEnv:
+    """_refresh_bearer_token must raise CogSolAPIError when COGSOL_ENV is
+    missing or set to an unrecognised value."""
+
+    def test_raises_when_env_not_set(self, monkeypatch):
+        monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+        monkeypatch.delenv("COGSOL_ENV", raising=False)
+
+        with pytest.raises(CogSolAPIError):
+            _bare_client()._refresh_bearer_token()
+
+    def test_raises_when_env_is_unknown(self, monkeypatch):
+        monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+        monkeypatch.setenv("COGSOL_ENV", "staging")
+
+        with pytest.raises(CogSolAPIError):
+            _bare_client()._refresh_bearer_token()
+
+    def test_error_mentions_invalid_env_value(self, monkeypatch):
+        monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+        monkeypatch.setenv("COGSOL_ENV", "staging")
+
+        with pytest.raises(CogSolAPIError) as exc_info:
+            _bare_client()._refresh_bearer_token()
+
+        assert "staging" in str(exc_info.value)
+
+    def test_error_lists_valid_env_values(self, monkeypatch):
+        monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+        monkeypatch.setenv("COGSOL_ENV", "bad-value")
+
+        with pytest.raises(CogSolAPIError) as exc_info:
+            _bare_client()._refresh_bearer_token()
+
+        error_msg = str(exc_info.value)
+        for valid_env in ("development", "testing", "implantation", "production"):
+            assert valid_env in error_msg
+
+
 class TestMissingAuthSecret:
     """_refresh_bearer_token must raise CogSolAPIError with a helpful message
     when COGSOL_AUTH_CLIENT_ID is set but COGSOL_AUTH_SECRET is missing."""
