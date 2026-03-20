@@ -44,6 +44,7 @@ class TestMissingAuthSecret:
 
     def test_raises_cogsol_api_error(self, monkeypatch):
         monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+        monkeypatch.setenv("COGSOL_ENV", "development")
         monkeypatch.delenv("COGSOL_AUTH_SECRET", raising=False)
 
         with pytest.raises(CogSolAPIError):
@@ -51,6 +52,7 @@ class TestMissingAuthSecret:
 
     def test_error_mentions_missing_secret_var(self, monkeypatch):
         monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+        monkeypatch.setenv("COGSOL_ENV", "development")
         monkeypatch.delenv("COGSOL_AUTH_SECRET", raising=False)
 
         with pytest.raises(CogSolAPIError) as exc_info:
@@ -60,6 +62,7 @@ class TestMissingAuthSecret:
 
     def test_error_includes_onboarding_url(self, monkeypatch):
         monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+        monkeypatch.setenv("COGSOL_ENV", "development")
         monkeypatch.delenv("COGSOL_AUTH_SECRET", raising=False)
 
         with pytest.raises(CogSolAPIError) as exc_info:
@@ -69,6 +72,7 @@ class TestMissingAuthSecret:
 
     def test_error_mentions_implantation_portal(self, monkeypatch):
         monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+        monkeypatch.setenv("COGSOL_ENV", "development")
         monkeypatch.delenv("COGSOL_AUTH_SECRET", raising=False)
 
         with pytest.raises(CogSolAPIError) as exc_info:
@@ -80,6 +84,7 @@ class TestMissingAuthSecret:
         """With a valid secret the error must NOT be raised (msal call may fail,
         but that is a different error path)."""
         monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+        monkeypatch.setenv("COGSOL_ENV", "development")
         monkeypatch.setenv("COGSOL_AUTH_SECRET", "some-secret")
 
         # The error about missing secret should not be raised;

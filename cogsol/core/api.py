@@ -16,8 +16,8 @@ from jwt import decode
 from cogsol.core.constants import (
     AUTH_SCOPE_IDS,
     get_cognitive_api_base_url,
-    get_content_api_base_url,
     get_cogsol_env,
+    get_content_api_base_url,
 )
 
 
