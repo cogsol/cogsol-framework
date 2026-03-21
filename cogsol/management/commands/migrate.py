@@ -772,14 +772,15 @@ class Command(BaseCommand):
             return int(retrieval_id)
 
         params = list(fields.get("parameters") or [])
-        if not params:
-            params.append(
+        if not any(p.get("name") == "question" for p in params):
+            params.insert(
+                0,
                 {
                     "name": "question",
                     "description": "Search query",
                     "type": "string",
                     "required": True,
-                }
+                },
             )
         description = fields.get("description") or f"Retrieval tool {tool_name}"
         retrieval_id = _resolve_retrieval_id(fields.get("retrieval"))
