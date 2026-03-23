@@ -51,13 +51,26 @@ CogSol is designed to provide a Django-like development experience for building 
 
 ## Installation
 
-### From Source
-
 ```bash
+# Option A: Install from source
 git clone <repository-url> cogsol-framework
 cd cogsol-framework
+
+# Create and activate a virtual environment
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# macOS/Linux:
+source .venv/bin/activate
+
+# Install dependencies
 pip install -e .
+
+# Option B: Install from PyPI
+pip install cogsol-framework
 ```
+
+Using a local `.venv` keeps project dependencies isolated and prevents conflicts with global Python packages.
 
 ### Requirements
 
