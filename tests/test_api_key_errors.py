@@ -2,6 +2,7 @@
 Tests for API key and credential error messages (branch: csp-1666-api-key-error-msg).
 
 Covers:
+- get_auth_scope_id: scope resolved from COGSOL_ENV, overridable via COGSOL_AUTH_SCOPE_ID.
 - CogSolClient._refresh_bearer_token: detailed error when COGSOL_AUTH_SECRET is missing.
 - migrate Command: no-credentials check shows helpful message and returns 1.
 - importagent Command: no-credentials check shows helpful message and returns 1.
@@ -38,43 +39,42 @@ def _bare_client() -> CogSolClient:
 # ---------------------------------------------------------------------------
 
 
-class TestInvalidCogsolEnv:
-    """_refresh_bearer_token must raise CogSolAPIError when COGSOL_ENV is
-    missing or set to an unrecognised value."""
+class TestAuthScopeIdResolution:
+    """get_auth_scope_id must return the correct scope based on COGSOL_ENV,
+    defaulting to the implantation scope for missing or unknown values.
+    COGSOL_AUTH_SCOPE_ID overrides the derived value when set."""
 
-    def test_raises_when_env_not_set(self, monkeypatch):
-        monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+    def test_returns_implantation_scope_when_env_not_set(self, monkeypatch):
         monkeypatch.delenv("COGSOL_ENV", raising=False)
+        monkeypatch.delenv("COGSOL_AUTH_SCOPE_ID", raising=False)
 
-        with pytest.raises(CogSolAPIError):
-            _bare_client()._refresh_bearer_token()
+        from cogsol.core.constants import AUTH_SCOPE_IDS, get_auth_scope_id
 
-    def test_raises_when_env_is_unknown(self, monkeypatch):
-        monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
-        monkeypatch.setenv("COGSOL_ENV", "staging")
+        assert get_auth_scope_id() == AUTH_SCOPE_IDS["implantation"]
 
-        with pytest.raises(CogSolAPIError):
-            _bare_client()._refresh_bearer_token()
+    def test_returns_implantation_scope_when_env_is_unknown(self, monkeypatch):
+        monkeypatch.setenv("COGSOL_ENV", "development")
+        monkeypatch.delenv("COGSOL_AUTH_SCOPE_ID", raising=False)
 
-    def test_error_mentions_invalid_env_value(self, monkeypatch):
-        monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
-        monkeypatch.setenv("COGSOL_ENV", "staging")
+        from cogsol.core.constants import AUTH_SCOPE_IDS, get_auth_scope_id
 
-        with pytest.raises(CogSolAPIError) as exc_info:
-            _bare_client()._refresh_bearer_token()
+        assert get_auth_scope_id() == AUTH_SCOPE_IDS["implantation"]
 
-        assert "staging" in str(exc_info.value)
+    def test_returns_production_scope_when_env_is_production(self, monkeypatch):
+        monkeypatch.setenv("COGSOL_ENV", "production")
+        monkeypatch.delenv("COGSOL_AUTH_SCOPE_ID", raising=False)
 
-    def test_error_lists_valid_env_values(self, monkeypatch):
-        monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
-        monkeypatch.setenv("COGSOL_ENV", "bad-value")
+        from cogsol.core.constants import AUTH_SCOPE_IDS, get_auth_scope_id
 
-        with pytest.raises(CogSolAPIError) as exc_info:
-            _bare_client()._refresh_bearer_token()
+        assert get_auth_scope_id() == AUTH_SCOPE_IDS["production"]
 
-        error_msg = str(exc_info.value)
-        for valid_env in ("development", "testing", "implantation", "production"):
-            assert valid_env in error_msg
+    def test_scope_id_env_var_overrides_derived_value(self, monkeypatch):
+        monkeypatch.setenv("COGSOL_AUTH_SCOPE_ID", "custom-scope-id-override")
+        monkeypatch.setenv("COGSOL_ENV", "production")
+
+        from cogsol.core.constants import get_auth_scope_id
+
+        assert get_auth_scope_id() == "custom-scope-id-override"
 
 
 class TestMissingAuthSecret:

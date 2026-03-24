@@ -14,9 +14,8 @@ import msal
 from jwt import decode
 
 from cogsol.core.constants import (
-    AUTH_SCOPE_IDS,
+    get_auth_scope_id,
     get_cognitive_api_base_url,
-    get_cogsol_env,
     get_content_api_base_url,
 )
 
@@ -135,13 +134,7 @@ class CogSolClient:
         client_id = os.environ.get("COGSOL_AUTH_CLIENT_ID")
         client_secret = os.environ.get("COGSOL_AUTH_SECRET")
 
-        cogsol_env = get_cogsol_env()
-        scope_id = AUTH_SCOPE_IDS.get(cogsol_env)
-        if scope_id is None:
-            raise CogSolAPIError(
-                f"Unknown COGSOL_ENV value: {cogsol_env!r}. "
-                "Expected one of: development, testing, implantation, production."
-            )
+        scope_id = get_auth_scope_id()
 
         if not client_secret:
             raise CogSolAPIError(
