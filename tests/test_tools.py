@@ -6,6 +6,8 @@ from cogsol.tools import (
     BaseFAQ,
     BaseFixedResponse,
     BaseLesson,
+    BaseMCPServer,
+    BaseRetrievalTool,
     BaseTool,
     tool_params,
 )
@@ -41,6 +43,46 @@ class TestBaseTool:
         """Tool repr should include name."""
         tool = BaseTool(name="test")
         assert "test" in repr(tool)
+
+    def test_parameters_not_shared_between_instances(self):
+        """BaseTool parameters should not be shared across instances."""
+
+        class ParamTool(BaseTool):
+            parameters = {"a": {"type": "string"}}
+
+        first = ParamTool()
+        second = ParamTool()
+
+        first.parameters["b"] = {"type": "integer"}
+        assert "b" not in second.parameters
+
+
+class TestBaseRetrievalTool:
+    def test_parameters_not_shared_between_instances(self):
+        """BaseRetrievalTool parameters should not be shared across instances."""
+
+        class RetrievalTool(BaseRetrievalTool):
+            parameters = [{"name": "query"}]
+
+        first = RetrievalTool()
+        second = RetrievalTool()
+
+        first.parameters.append({"name": "limit"})
+        assert len(second.parameters) == 1
+
+
+class TestBaseMCPServer:
+    def test_headers_not_shared_between_instances(self):
+        """BaseMCPServer headers should not be shared across instances."""
+
+        class DemoServer(BaseMCPServer):
+            headers = {"x-api-key": "one"}
+
+        first = DemoServer()
+        second = DemoServer()
+
+        first.headers["x-custom"] = "v"
+        assert "x-custom" not in second.headers
 
 
 class TestBaseFAQ:
