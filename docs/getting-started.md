@@ -56,8 +56,8 @@ source .venv/bin/activate
 # Install dependencies
 pip install -e .
 
-# Option B: Install from PyPI (when available)
-pip install cogsol
+# Option B: Install from PyPI
+pip install cogsol-framework
 ```
 
 Using a local `.venv` keeps project dependencies isolated and prevents conflicts with global Python packages.
