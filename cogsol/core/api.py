@@ -14,6 +14,7 @@ import msal
 from jwt import decode
 
 from cogsol.core.constants import (
+    get_auth_scope_id,
     get_cognitive_api_base_url,
     get_content_api_base_url,
 )
@@ -133,6 +134,8 @@ class CogSolClient:
         client_id = os.environ.get("COGSOL_AUTH_CLIENT_ID")
         client_secret = os.environ.get("COGSOL_AUTH_SECRET")
 
+        scope_id = get_auth_scope_id()
+
         if not client_secret:
             raise CogSolAPIError(
                 "Missing authentication configuration: COGSOL_AUTH_SECRET is not set.\n"
@@ -141,7 +144,7 @@ class CogSolClient:
             )
 
         authority = "https://pyxiscognitivesweden.b2clogin.com/pyxiscognitivesweden.onmicrosoft.com/B2C_1A_CS_signup_signin_Sweden_MigrationOIDC"
-        scopes = [f"https://pyxiscognitivesweden.onmicrosoft.com/{client_id}/.default"]
+        scopes = [f"https://pyxiscognitivesweden.onmicrosoft.com/{scope_id}/.default"]
 
         app = msal.ConfidentialClientApplication(
             client_id,

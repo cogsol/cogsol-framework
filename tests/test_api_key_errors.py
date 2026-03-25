@@ -2,6 +2,7 @@
 Tests for API key and credential error messages (branch: csp-1666-api-key-error-msg).
 
 Covers:
+- get_auth_scope_id: scope resolved from COGSOL_ENV, overridable via COGSOL_AUTH_SCOPE_ID.
 - CogSolClient._refresh_bearer_token: detailed error when COGSOL_AUTH_SECRET is missing.
 - migrate Command: no-credentials check shows helpful message and returns 1.
 - importagent Command: no-credentials check shows helpful message and returns 1.
@@ -38,12 +39,51 @@ def _bare_client() -> CogSolClient:
 # ---------------------------------------------------------------------------
 
 
+class TestAuthScopeIdResolution:
+    """get_auth_scope_id must return the correct scope based on COGSOL_ENV,
+    defaulting to the implantation scope for missing or unknown values.
+    COGSOL_AUTH_SCOPE_ID overrides the derived value when set."""
+
+    def test_returns_implantation_scope_when_env_not_set(self, monkeypatch):
+        monkeypatch.delenv("COGSOL_ENV", raising=False)
+        monkeypatch.delenv("COGSOL_AUTH_SCOPE_ID", raising=False)
+
+        from cogsol.core.constants import AUTH_SCOPE_IDS, get_auth_scope_id
+
+        assert get_auth_scope_id() == AUTH_SCOPE_IDS["implantation"]
+
+    def test_returns_implantation_scope_when_env_is_unknown(self, monkeypatch):
+        monkeypatch.setenv("COGSOL_ENV", "development")
+        monkeypatch.delenv("COGSOL_AUTH_SCOPE_ID", raising=False)
+
+        from cogsol.core.constants import AUTH_SCOPE_IDS, get_auth_scope_id
+
+        assert get_auth_scope_id() == AUTH_SCOPE_IDS["implantation"]
+
+    def test_returns_production_scope_when_env_is_production(self, monkeypatch):
+        monkeypatch.setenv("COGSOL_ENV", "production")
+        monkeypatch.delenv("COGSOL_AUTH_SCOPE_ID", raising=False)
+
+        from cogsol.core.constants import AUTH_SCOPE_IDS, get_auth_scope_id
+
+        assert get_auth_scope_id() == AUTH_SCOPE_IDS["production"]
+
+    def test_scope_id_env_var_overrides_derived_value(self, monkeypatch):
+        monkeypatch.setenv("COGSOL_AUTH_SCOPE_ID", "custom-scope-id-override")
+        monkeypatch.setenv("COGSOL_ENV", "production")
+
+        from cogsol.core.constants import get_auth_scope_id
+
+        assert get_auth_scope_id() == "custom-scope-id-override"
+
+
 class TestMissingAuthSecret:
     """_refresh_bearer_token must raise CogSolAPIError with a helpful message
     when COGSOL_AUTH_CLIENT_ID is set but COGSOL_AUTH_SECRET is missing."""
 
     def test_raises_cogsol_api_error(self, monkeypatch):
         monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+        monkeypatch.setenv("COGSOL_ENV", "development")
         monkeypatch.delenv("COGSOL_AUTH_SECRET", raising=False)
 
         with pytest.raises(CogSolAPIError):
@@ -51,6 +91,7 @@ class TestMissingAuthSecret:
 
     def test_error_mentions_missing_secret_var(self, monkeypatch):
         monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+        monkeypatch.setenv("COGSOL_ENV", "development")
         monkeypatch.delenv("COGSOL_AUTH_SECRET", raising=False)
 
         with pytest.raises(CogSolAPIError) as exc_info:
@@ -60,6 +101,7 @@ class TestMissingAuthSecret:
 
     def test_error_includes_onboarding_url(self, monkeypatch):
         monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+        monkeypatch.setenv("COGSOL_ENV", "development")
         monkeypatch.delenv("COGSOL_AUTH_SECRET", raising=False)
 
         with pytest.raises(CogSolAPIError) as exc_info:
@@ -69,6 +111,7 @@ class TestMissingAuthSecret:
 
     def test_error_mentions_implantation_portal(self, monkeypatch):
         monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+        monkeypatch.setenv("COGSOL_ENV", "development")
         monkeypatch.delenv("COGSOL_AUTH_SECRET", raising=False)
 
         with pytest.raises(CogSolAPIError) as exc_info:
@@ -80,6 +123,7 @@ class TestMissingAuthSecret:
         """With a valid secret the error must NOT be raised (msal call may fail,
         but that is a different error path)."""
         monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+        monkeypatch.setenv("COGSOL_ENV", "development")
         monkeypatch.setenv("COGSOL_AUTH_SECRET", "some-secret")
 
         # The error about missing secret should not be raised;
