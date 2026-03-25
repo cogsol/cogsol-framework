@@ -751,19 +751,6 @@ For detailed API documentation, see:
 
 ---
 
-## Contributing
-
-Contributions are welcome. To get started:
-
-1. Fork the repository and create a feature branch.
-2. Follow the existing code style and conventions.
-3. Add or update tests as appropriate.
-4. Open a pull request with a clear description of your changes.
-
-For bug reports or feature requests, please open an issue on the repository.
-
----
-
 ## License
 
 Copyright © Cognitive Solutions
