@@ -28,6 +28,8 @@ from cogsol.tools import (
     BaseFAQ,
     BaseFixedResponse,
     BaseLesson,
+    BaseMCPServer,
+    BaseMCPTool,
     BaseRetrievalTool,
     BaseTool,
 )
@@ -69,6 +71,8 @@ def serialize_value(value: Any) -> Any:
         return (
             getattr(value, "name", None) or getattr(value, "key", None) or value.__class__.__name__
         )
+    if isinstance(value, type) and issubclass(value, BaseMCPServer):
+        return getattr(value, "name", None) or value.__name__
     if isinstance(value, type):
         if issubclass(value, BaseRetrieval):
             return getattr(value, "name", None) or value.__name__
@@ -294,6 +298,8 @@ def collect_definitions(
         "agents": {},
         "tools": {},
         "retrieval_tools": {},
+        "mcp_servers": {},
+        "mcp_tools": {},
         "faqs": {},
         "fixed_responses": {},
         "lessons": {},
@@ -345,6 +351,64 @@ def collect_definitions(
     except ModuleNotFoundError as exc:
         if not _ignore_missing_module(exc, f"{app_name}.searches"):
             _raise_import_error("retrieval tools module", f"{app_name}.searches", exc)
+
+    # MCP servers (global)
+    try:
+        mcp_server_module = _import_module(f"{app_name}.mcp_servers", project_path)
+        mcp_srv_prefix = f"{mcp_server_module.__name__}."
+        for _, obj in inspect.getmembers(mcp_server_module, inspect.isclass):
+            if (
+                issubclass(obj, BaseMCPServer)
+                and obj is not BaseMCPServer
+                and (
+                    obj.__module__ == mcp_server_module.__name__
+                    or obj.__module__.startswith(mcp_srv_prefix)
+                )
+            ):
+                fields, meta = _extract_class_fields(obj)
+                name = fields.get("name") or obj.__name__
+                fields["name"] = name
+                # Resolve env-var references so values are evaluated at collect time
+                if hasattr(obj, "url") and obj.url is not None:
+                    fields["url"] = obj.url
+                if hasattr(obj, "headers") and obj.headers:
+                    fields["headers"] = obj.headers
+                # OAuth fields
+                if hasattr(obj, "auth_type"):
+                    fields["auth_type"] = obj.auth_type
+                if hasattr(obj, "oauth_client_id") and obj.oauth_client_id is not None:
+                    fields["oauth_client_id"] = obj.oauth_client_id
+                if hasattr(obj, "oauth_scopes") and obj.oauth_scopes is not None:
+                    fields["oauth_scopes"] = obj.oauth_scopes
+                definitions["mcp_servers"][name] = {"fields": fields, "meta": meta}
+    except ModuleNotFoundError as exc:
+        if not _ignore_missing_module(exc, f"{app_name}.mcp_servers"):
+            _raise_import_error("MCP servers module", f"{app_name}.mcp_servers", exc)
+
+    # MCP tools (global)
+    try:
+        mcp_tool_module = _import_module(f"{app_name}.mcp_tools", project_path)
+        mcp_tool_prefix = f"{mcp_tool_module.__name__}."
+        for _, obj in inspect.getmembers(mcp_tool_module, inspect.isclass):
+            if (
+                issubclass(obj, BaseMCPTool)
+                and obj is not BaseMCPTool
+                and (
+                    obj.__module__ == mcp_tool_module.__name__
+                    or obj.__module__.startswith(mcp_tool_prefix)
+                )
+            ):
+                fields, meta = _extract_class_fields(obj)
+                name = fields.get("name") or obj.__name__
+                fields["name"] = name
+                # Serialize server reference as the server class name
+                server_cls = getattr(obj, "server", None)
+                if server_cls is not None and isinstance(server_cls, type):
+                    fields["server"] = getattr(server_cls, "name", None) or server_cls.__name__
+                definitions["mcp_tools"][name] = {"fields": fields, "meta": meta}
+    except ModuleNotFoundError as exc:
+        if not _ignore_missing_module(exc, f"{app_name}.mcp_tools"):
+            _raise_import_error("MCP tools module", f"{app_name}.mcp_tools", exc)
 
     # Per-agent packages (agents/<slug>/agent.py)
     for sub in sorted(app_path.iterdir()):
@@ -483,6 +547,8 @@ def collect_classes(project_path: Path, app_name: str = "agents") -> dict[str, d
         "agents": {},
         "tools": {},
         "retrieval_tools": {},
+        "mcp_servers": {},
+        "mcp_tools": {},
     }
 
     # Tools
@@ -520,6 +586,44 @@ def collect_classes(project_path: Path, app_name: str = "agents") -> dict[str, d
     except ModuleNotFoundError as exc:
         if not _ignore_missing_module(exc, f"{app_name}.searches"):
             _raise_import_error("retrieval tools module", f"{app_name}.searches", exc)
+
+    # MCP servers
+    try:
+        mcp_server_module = _import_module(f"{app_name}.mcp_servers", project_path)
+        mcp_srv_prefix = f"{mcp_server_module.__name__}."
+        for _, obj in inspect.getmembers(mcp_server_module, inspect.isclass):
+            if (
+                issubclass(obj, BaseMCPServer)
+                and obj is not BaseMCPServer
+                and (
+                    obj.__module__ == mcp_server_module.__name__
+                    or obj.__module__.startswith(mcp_srv_prefix)
+                )
+            ):
+                name = getattr(obj, "name", None) or obj.__name__
+                classes["mcp_servers"][name] = obj
+    except ModuleNotFoundError as exc:
+        if not _ignore_missing_module(exc, f"{app_name}.mcp_servers"):
+            _raise_import_error("MCP servers module", f"{app_name}.mcp_servers", exc)
+
+    # MCP tools
+    try:
+        mcp_tool_module = _import_module(f"{app_name}.mcp_tools", project_path)
+        mcp_tool_prefix = f"{mcp_tool_module.__name__}."
+        for _, obj in inspect.getmembers(mcp_tool_module, inspect.isclass):
+            if (
+                issubclass(obj, BaseMCPTool)
+                and obj is not BaseMCPTool
+                and (
+                    obj.__module__ == mcp_tool_module.__name__
+                    or obj.__module__.startswith(mcp_tool_prefix)
+                )
+            ):
+                name = getattr(obj, "name", None) or obj.__name__
+                classes["mcp_tools"][name] = obj
+    except ModuleNotFoundError as exc:
+        if not _ignore_missing_module(exc, f"{app_name}.mcp_tools"):
+            _raise_import_error("MCP tools module", f"{app_name}.mcp_tools", exc)
 
     # Agents per folder
     for sub in sorted(app_path.iterdir()):

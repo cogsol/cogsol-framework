@@ -129,6 +129,25 @@ class CreateRetrieval(CreateDefinition):
         super().__init__(name=name, fields=fields, entity="retrievals")
 
 
+# =============================================================================
+# MCP entities (agents/ folder)
+# =============================================================================
+
+
+class CreateMCPServer(CreateDefinition):
+    """Creates an MCP Server definition."""
+
+    def __init__(self, name: str, fields: dict[str, Any]) -> None:
+        super().__init__(name=name, fields=fields, entity="mcp_servers")
+
+
+class CreateMCPTool(CreateDefinition):
+    """Creates an MCP Tool definition linked to an MCP Server."""
+
+    def __init__(self, name: str, fields: dict[str, Any]) -> None:
+        super().__init__(name=name, fields=fields, entity="mcp_tools")
+
+
 @dataclass
 class AlterField:
     model_name: str

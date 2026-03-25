@@ -56,8 +56,8 @@ source .venv/bin/activate
 # Install dependencies
 pip install -e .
 
-# Option B: Install from PyPI (when available)
-pip install cogsol
+# Option B: Install from PyPI
+pip install cogsol-framework
 ```
 
 Using a local `.venv` keeps project dependencies isolated and prevents conflicts with global Python packages.
@@ -583,6 +583,8 @@ class ProductDocsRetrieval(BaseRetrieval):
     num_refs = 10
 ```
 
+This is required before creating the search tool.
+
 ### Step 6: Connect Retrieval to Agent
 
 Create a retrieval tool in `agents/searches.py`:
@@ -599,7 +601,7 @@ class ProductDocsSearch(BaseRetrievalTool):
     parameters = []
 ```
 
-Then add it to your agent in `agents/customersupport/agent.py`:
+Then addd it to your agent in `agents/customersupport/agent.py`:
 
 ```python
 from ..searches import ProductDocsSearch
@@ -611,6 +613,9 @@ class CustomerSupportAgent(BaseAgent):
         ProductDocsSearch(),
     ]
 ```
+
+Without this registration in `tools`, the search will not be used.
+
 
 ### Step 7: Deploy Topics and Retrievals
 
