@@ -56,8 +56,8 @@ source .venv/bin/activate
 # Install dependencies
 pip install -e .
 
-# Option B: Install from PyPI (when available)
-pip install cogsol
+# Option B: Install from PyPI
+pip install cogsol-framework
 ```
 
 Using a local `.venv` keeps project dependencies isolated and prevents conflicts with global Python packages.
@@ -580,13 +580,16 @@ Add a retrieval in `data/retrievals.py` to enable semantic search:
 
 ```python
 from cogsol.content import BaseRetrieval
+from data.product_docs import ProductDocsTopic
 
 
 class ProductDocsRetrieval(BaseRetrieval):
     name = "product_docs_search"
-    topic = "product_docs"
+    topic = ProductDocsTopic
     num_refs = 10
 ```
+
+This is required before creating the search tool.
 
 ### Step 6: Connect Retrieval to Agent
 
@@ -604,7 +607,7 @@ class ProductDocsSearch(BaseRetrievalTool):
     parameters = []
 ```
 
-Then add it to your agent in `agents/customersupport/agent.py`:
+Then addd it to your agent in `agents/customersupport/agent.py`:
 
 ```python
 from ..searches import ProductDocsSearch
@@ -617,6 +620,9 @@ class CustomerSupportAgent(BaseAgent):
     ]
 ```
 
+Without this registration in `tools`, the search will not be used.
+
+
 ### Step 7: Deploy Topics and Retrievals
 
 Create and apply migrations for your content:
@@ -628,14 +634,17 @@ python manage.py migrate data
 
 ### Step 8: Ingest Documents
 
-Upload documents to your topic:
+Upload documents to your topic. In this guide, examples place files under `data/<topic-path>/` so the file location mirrors the topic path:
 
 ```bash
 # Ingest a directory of documents
-python manage.py ingest product_docs ./docs/
+python manage.py ingest product_docs ./data/product_docs/
+
+# Ingest into a nested child topic (parent/child path)
+python manage.py ingest product_docs/tutorials ./data/product_docs/tutorials/*.pdf
 
 # Preview first (dry run)
-python manage.py ingest product_docs ./docs/ --dry-run
+python manage.py ingest product_docs ./data/product_docs/ --dry-run
 ```
 
 ### Step 9: List Topics

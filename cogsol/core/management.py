@@ -21,6 +21,7 @@ def _command_registry() -> dict[str, str]:
         "importagent": "cogsol.management.commands.importagent",
         "makemigrations": "cogsol.management.commands.makemigrations",
         "migrate": "cogsol.management.commands.migrate",
+        "addmcptools": "cogsol.management.commands.addmcptools",
         "chat": "cogsol.management.commands.chat",
     }
 

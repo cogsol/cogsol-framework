@@ -10,6 +10,9 @@ from cogsol.management.commands.ingest import (
     collect_files,
     load_ingestion_config,
 )
+from cogsol.management.commands.startproject import (
+    Command as StartprojectCommand,
+)
 from cogsol.management.commands.starttopic import (
     Command as StarttopicCommand,
 )
@@ -17,6 +20,62 @@ from cogsol.management.commands.starttopic import (
     to_class_name,
     validate_topic_name,
 )
+
+
+class TestStartprojectCommand:
+    """Tests for startproject command."""
+
+    def test_creates_project_structure(self):
+        """Command should create the full project directory structure."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir) / "myproject"
+
+            cmd = StartprojectCommand()
+            result = cmd.handle(project_path=None, name="myproject", directory=str(project_dir))
+
+            assert result == 0
+            assert (project_dir / "manage.py").exists()
+            assert (project_dir / "settings.py").exists()
+            assert (project_dir / "data" / "retrievals.py").exists()
+            assert (project_dir / "data" / "migrations").exists()
+            assert (project_dir / "agents" / "searches.py").exists()
+
+    def test_retrievals_template_uses_topic_class_reference(self):
+        """Generated data/retrievals.py must use a Topic class reference, not a string."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir) / "myproject"
+
+            cmd = StartprojectCommand()
+            cmd.handle(project_path=None, name="myproject", directory=str(project_dir))
+
+            content = (project_dir / "data" / "retrievals.py").read_text(encoding="utf-8")
+
+            assert 'topic = "product_docs"' not in content
+            assert "topic = ProductDocsTopic" in content
+
+    def test_retrievals_template_includes_topic_import(self):
+        """Generated data/retrievals.py must include the commented import for the Topic class."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir) / "myproject"
+
+            cmd = StartprojectCommand()
+            cmd.handle(project_path=None, name="myproject", directory=str(project_dir))
+
+            content = (project_dir / "data" / "retrievals.py").read_text(encoding="utf-8")
+
+            assert "from data.product_docs import ProductDocsTopic" in content
+
+    def test_fails_if_directory_not_empty(self):
+        """Command should fail if the target directory already has files."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir) / "myproject"
+            project_dir.mkdir()
+            (project_dir / "existing_file.txt").write_text("content", encoding="utf-8")
+
+            cmd = StartprojectCommand()
+            result = cmd.handle(project_path=None, name="myproject", directory=str(project_dir))
+
+            assert result == 1
 
 
 class TestToClassName:

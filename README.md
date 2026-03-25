@@ -51,13 +51,26 @@ CogSol is designed to provide a Django-like development experience for building 
 
 ## Installation
 
-### From Source
-
 ```bash
+# Option A: Install from source
 git clone <repository-url> cogsol-framework
 cd cogsol-framework
+
+# Create and activate a virtual environment
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# macOS/Linux:
+source .venv/bin/activate
+
+# Install dependencies
 pip install -e .
+
+# Option B: Install from PyPI
+pip install cogsol-framework
 ```
+
+Using a local `.venv` keeps project dependencies isolated and prevents conflicts with global Python packages.
 
 ### Requirements
 
@@ -118,11 +131,13 @@ agents/salesagent/
 
 ### 3. Configure Environment
 
-Copy `.env.example` to `.env` and set your API credentials:
+To use CogSol you need API credentials. Visit **[https://onboarding.cogsol.ai](https://onboarding.cogsol.ai)** to obtain your credentials. Make sure to also configure the service API key in the implantation portal before running any commands.
+
+Copy `.env.example` to `.env` and fill in the credentials obtained from the portal:
 
 ```env
 COGSOL_ENV=development
-COGSOL_API_KEY=your-api-key
+COGSOL_API_KEY=your-api-key  # Obtain from https://onboarding.cogsol.ai
 # Optional: Azure AD B2C client credentials for JWT
 # If not provided, the Auth will be skipped
 COGSOL_AUTH_CLIENT_ID=your-client-id
@@ -141,13 +156,23 @@ python manage.py makemigrations
 python manage.py migrate
 ```
 
-### 6. Chat with Your Agent
+### 6. Configure API key of your preferred LLM provider
+
+To run your agents, you’ll need to configure first the API key of your preferred LLM provider:
+- OpenAI
+- Google Gemini
+- Anthropic
+
+You can add your API key at [Cogsol platform](https://platform.cogsol.ai/configuration/services)
+
+
+### 7. Chat with Your Agent
 
 ```bash
 python manage.py chat --agent SalesAgent
 ```
 
-### 7. Add Document Topics (Optional)
+### 8. Add Document Topics (Optional)
 
 `documentation` in the examples below is only a sample topic name. You can use any topic name that fits your use case.
 
@@ -163,7 +188,10 @@ python manage.py makemigrations data
 python manage.py migrate data
 
 # Ingest documents into a topic
-python manage.py ingest documentation ./docs/*.pdf
+python manage.py ingest documentation ./data/documentation/*.pdf
+
+# Ingest documents into a nested topic
+python manage.py ingest documentation/tutorials ./data/documentation/tutorials/*.pdf
 ```
 
 ---
@@ -297,6 +325,14 @@ python manage.py ingest <topic> <files...> [options]
 - `topic`: Topic path (e.g., `documentation` or `parent/child/topic`)
 - `files`: Files, directories, or glob patterns to ingest
 
+Use slash-separated paths for nested topics. For example, if you created `tutorials` under
+`documentation` with `starttopic tutorials --path documentation`, ingest into it with
+`documentation/tutorials`.
+
+For a topic-aligned workflow, place files under `data/<topic-path>/` and ingest from that
+folder (for example, `./data/documentation/*.pdf` or
+`./data/documentation/tutorials/*.pdf`).
+
 **Options:**
 - `--doc-type`: Document type (defaults to `Text Document`)
 - `--ingestion-config`: Name of an ingestion config from `data/ingestion.py`
@@ -313,13 +349,16 @@ python manage.py ingest <topic> <files...> [options]
 **Examples:**
 ```bash
 # Ingest PDF files
-python manage.py ingest documentation ./docs/*.pdf
+python manage.py ingest documentation ./data/documentation/*.pdf
+
+# Ingest into a child topic
+python manage.py ingest documentation/tutorials ./data/documentation/tutorials/*.pdf
 
 # Ingest with custom config
-python manage.py ingest documentation ./docs/ --ingestion-config HighQuality
+python manage.py ingest documentation ./data/documentation/ --ingestion-config HighQuality
 
 # Dry run to preview
-python manage.py ingest documentation ./data/ --dry-run
+python manage.py ingest documentation ./data/documentation/ --dry-run
 ```
 
 ### `topics`
@@ -613,7 +652,7 @@ from cogsol.content import BaseIngestionConfig, PDFParsingMode, ChunkingMode
 Use with the `ingest` command:
 
 ```bash
-python manage.py ingest documentation ./docs/ --ingestion-config high_quality
+python manage.py ingest documentation ./data/documentation/ --ingestion-config high_quality
 ```
 
 #### Reference Formatters
@@ -666,17 +705,14 @@ from cogsol.content import BaseRetrieval, ReorderingStrategy
 
 ### Environment Variables
 
+Credentials are obtained from the CogSol onboarding portal at **[https://onboarding.cogsol.ai](https://onboarding.cogsol.ai)**. Configure your service API key there before running migrations or using the CLI.
+
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `COGSOL_API_KEY` | Yes | API Key authentication |
+| `COGSOL_API_KEY` | Yes | Service API key — obtain from the portal at https://onboarding.cogsol.ai |
 | `COGSOL_ENV` | No | Environment name (e.g., `local`, `development`, `production`) |
-| `COGSOL_AUTH_CLIENT_ID` | No | Client Id provided for adminitrators |
-| `COGSOL_AUTH_SECRET` | No | Auth Secret provided for adminitrators |
-
-# Optional: Azure AD B2C client credentials for JWT\
-# If not provided, the Auth will be skipped
-COGSOL_AUTH_CLIENT_ID=your-client-id
-COGSOL_AUTH_SECRET=your-client-secret
+| `COGSOL_AUTH_CLIENT_ID` | No | Client Id provided for administrators |
+| `COGSOL_AUTH_SECRET` | No | Auth secret provided for administrators |
 
 ### Project Settings (`settings.py`)
 

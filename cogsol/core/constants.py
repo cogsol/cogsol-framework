@@ -8,6 +8,7 @@ from typing import Final
 COGSOL_ENV_VAR: Final = "COGSOL_ENV"
 COGSOL_API_BASE_VAR: Final = "COGSOL_API_BASE"
 COGSOL_CONTENT_API_BASE_VAR: Final = "COGSOL_CONTENT_API_BASE"
+COGSOL_AUTH_SCOPE_ID_VAR: Final = "COGSOL_AUTH_SCOPE_ID"
 
 if os.environ.get("COGSOL_AUTH_CLIENT_ID"):
     _implantation_cognitive_api_url = "https://apis-imp.cogsol.ai/cognitive"
@@ -63,6 +64,24 @@ def get_content_api_base_url() -> str:
     return _get_env_var(COGSOL_CONTENT_API_BASE_VAR) or get_default_content_api_base_url()
 
 
+AUTH_SCOPE_IDS: Final[dict[str, str]] = {
+    "implantation": "9efa4bc6-2b2b-4208-8c88-7a218c7061d6",
+    "production": "92c0d1cc-127b-4ec5-9be4-960c13c7aecc",
+}
+
+
+def get_default_auth_scope_id() -> str:
+    """Return the default OAuth scope ID based on COGSOL_ENV."""
+    if get_cogsol_env() == "production":
+        return AUTH_SCOPE_IDS["production"]
+    return AUTH_SCOPE_IDS["implantation"]
+
+
+def get_auth_scope_id() -> str:
+    """Resolve the OAuth scope ID using env overrides when present."""
+    return _get_env_var(COGSOL_AUTH_SCOPE_ID_VAR) or get_default_auth_scope_id()
+
+
 __all__ = [
     "COGSOL_ENV_VAR",
     "COGSOL_API_BASE_VAR",
@@ -76,4 +95,7 @@ __all__ = [
     "get_default_content_api_base_url",
     "get_cognitive_api_base_url",
     "get_content_api_base_url",
+    "AUTH_SCOPE_IDS",
+    "get_default_auth_scope_id",
+    "get_auth_scope_id",
 ]

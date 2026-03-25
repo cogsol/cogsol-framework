@@ -14,6 +14,7 @@ import msal
 from jwt import decode
 
 from cogsol.core.constants import (
+    get_auth_scope_id,
     get_cognitive_api_base_url,
     get_content_api_base_url,
 )
@@ -133,11 +134,17 @@ class CogSolClient:
         client_id = os.environ.get("COGSOL_AUTH_CLIENT_ID")
         client_secret = os.environ.get("COGSOL_AUTH_SECRET")
 
+        scope_id = get_auth_scope_id()
+
         if not client_secret:
-            raise CogSolAPIError("Missing authentication configuration: COGSOL_AUTH_SECRET")
+            raise CogSolAPIError(
+                "Missing authentication configuration: COGSOL_AUTH_SECRET is not set.\n"
+                "To obtain your credentials, visit https://onboarding.cogsol.ai\n"
+                "and configure the service API key in the implantation portal."
+            )
 
         authority = "https://pyxiscognitivesweden.b2clogin.com/pyxiscognitivesweden.onmicrosoft.com/B2C_1A_CS_signup_signin_Sweden_MigrationOIDC"
-        scopes = [f"https://pyxiscognitivesweden.onmicrosoft.com/{client_id}/.default"]
+        scopes = [f"https://pyxiscognitivesweden.onmicrosoft.com/{scope_id}/.default"]
 
         app = msal.ConfidentialClientApplication(
             client_id,
@@ -402,6 +409,63 @@ class CogSolClient:
 
     def get_retrieval_tool(self, tool_id: int) -> Any:
         return self.request("GET", f"/tools/retrievals/{tool_id}/")
+
+    # =========================================================================
+    # MCP Servers & Tools
+    # =========================================================================
+
+    def list_mcp_servers(self) -> Any:
+        """List all MCP servers."""
+        return self.request("GET", "/mcp-servers/")
+
+    def create_mcp_server(self, payload: dict[str, Any]) -> int:
+        """Create an MCP server and return its id."""
+        data = self.request("POST", "/mcp-servers/", payload)
+        return self._ensure_id(data, "MCPServer")
+
+    def upsert_mcp_server(self, *, remote_id: int | None, payload: dict[str, Any]) -> int:
+        """Create or update an MCP server."""
+        if remote_id:
+            data = self.request("PUT", f"/mcp-servers/{remote_id}/", payload)
+        else:
+            data = self.request("POST", "/mcp-servers/", payload)
+        return self._ensure_id(data, "MCPServer")
+
+    def delete_mcp_server(self, server_id: int) -> None:
+        """Delete an MCP server by id."""
+        self.request("DELETE", f"/mcp-servers/{server_id}/")
+
+    def get_mcp_server(self, server_id: int) -> Any:
+        """Retrieve an MCP server by id."""
+        return self.request("GET", f"/mcp-servers/{server_id}/")
+
+    def discover_mcp_oauth(self, server_id: int) -> Any:
+        """Discover OAuth metadata for an MCP server."""
+        return self.request("POST", f"/mcp-servers/{server_id}/oauth/discover/")
+
+    def get_mcp_oauth_authorization_url(self, server_id: int) -> Any:
+        """Get OAuth authorization URL for an MCP server."""
+        return self.request("GET", f"/mcp-servers/{server_id}/oauth/authorize/")
+
+    def list_mcp_server_tools(self, server_id: int) -> Any:
+        """List tools currently configured on an MCP server."""
+        return self.request("GET", f"/mcp-servers/{server_id}/tools/")
+
+    def sync_mcp_server_tools(self, server_id: int, selected_tools: list[str]) -> Any:
+        """Sync (create/update) the selected tools on an MCP server.
+
+        The backend uses a POST with ``{"selected_tools": [...]}``
+        to reconcile the tool set.
+        """
+        return self.request(
+            "POST",
+            f"/mcp-servers/{server_id}/tools/",
+            {"selected_tools": selected_tools},
+        )
+
+    def delete_mcp_tool(self, tool_id: int) -> None:
+        """Delete an MCP tool by id."""
+        self.request("DELETE", f"/mcp-tools/{tool_id}/")
 
     # =========================================================================
     # Content API - Nodes (Topics)

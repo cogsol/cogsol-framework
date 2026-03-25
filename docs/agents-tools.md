@@ -96,17 +96,20 @@ class QAAgent(BaseAgent):
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `tools` | `list[BaseTool]` | `[]` | Main tools available to agent |
-| `pretools` | `list[BaseTool]` | `[]` | Pre-processing tools |
+| `tools` | `list[BaseTool \| BaseRetrievalTool]` | `[]` | Main tools available to agent |
+| `pretools` | `list[BaseTool \| BaseRetrievalTool]` | `[]` | Pre-processing tools |
 
 ```python
 from cogsol.agents import BaseAgent
-from .tools import SearchTool, CalculatorTool
+from ..tools import CalculatorTool
+from ..searches import ProductDocsSearch
 
 class AssistantAgent(BaseAgent):
-    tools = [SearchTool(), CalculatorTool()]
+    tools = [CalculatorTool(), ProductDocsSearch()]
     pretools = [ContextLoader()]
 ```
+
+Use script tools (`BaseTool`) for capabilities/actions and retrieval tools (`BaseRetrievalTool`) for document search. Both are configured in the same list.
 
 #### Limits
 
@@ -240,7 +243,7 @@ def definition(cls) -> dict[str, Any]:
 
 ## Tools
 
-Tools extend agent capabilities with custom functionality.
+Tools (`BaseTool`) are general Python capabilities that execute actions such as calculations, formatting, API calls, or orchestration.
 
 ### BaseTool
 
@@ -288,30 +291,24 @@ Define parameters using the `@tool_params` decorator:
 ```python
 from cogsol.tools import BaseTool, tool_params
 
-class SearchTool(BaseTool):
-    description = "Search the knowledge base"
+class CurrencyFormatterTool(BaseTool):
+    description = "Format a numeric amount as currency"
     
     @tool_params(
-        query={
-            "description": "Search query string",
-            "type": "string",
+        amount={
+            "description": "Amount to format",
+            "type": "number",
             "required": True
         },
-        limit={
-            "description": "Maximum results to return",
-            "type": "integer",
-            "required": False
-        },
-        include_metadata={
-            "description": "Include metadata in results",
-            "type": "boolean",
+        currency={
+            "description": "Currency symbol",
+            "type": "string",
             "required": False
         }
     )
     def run(self, chat=None, data=None, secrets=None, log=None,
-            query: str = "", limit: int = 10, include_metadata: bool = False):
-        # Implementation
-        pass
+            amount: float = 0.0, currency: str = "$"):
+        return f"{currency}{amount:,.2f}"
 ```
 
 #### Parameter Schema
@@ -331,14 +328,14 @@ class SearchTool(BaseTool):
 Parameters can also be defined in the docstring:
 
 ```python
-class SearchTool(BaseTool):
+class GreetingTool(BaseTool):
     def run(self, chat=None, data=None, secrets=None, log=None,
-            query: str = "", limit: int = 10):
+            name: str = "", formal: bool = False):
         """
-        query: The search query to execute.
-        limit: Maximum number of results to return.
+        name: Person to greet.
+        formal: Whether to use a formal greeting.
         """
-        pass
+        return f"Hello, {name}." if formal else f"Hi {name}!"
 ```
 
 ### Tool Implementation
@@ -371,9 +368,8 @@ def run(
 The `run()` method should return the tool's response:
 
 ```python
-def run(self, chat=None, data=None, secrets=None, log=None, query: str = ""):
-    results = self._search(query)
-    response = self._format_results(results)
+def run(self, chat=None, data=None, secrets=None, log=None, text: str = ""):
+    response = text.upper()
     return response  # String or structured data
 ```
 
@@ -399,7 +395,7 @@ class WeatherTool(BaseTool):
         if log:
             log(f"Getting weather for {city}")
         
-        # Access secrets if needed
+        # Access secrets if needed & secrets must be created in the cogsol portal.
         api_key = secrets.get("WEATHER_API_KEY") if secrets else None
         
         # Tool logic
@@ -447,7 +443,7 @@ If this registration changes an existing agent definition, follow steps 8 and 9 
 
 ## Retrieval Tools
 
-Retrieval tools connect agents to Content API retrievals for semantic search over document collections.
+Retrieval tools (`BaseRetrievalTool`) are searches specialized for semantic retrieval over topic documents in the Content API.
 
 ### BaseRetrievalTool
 
@@ -484,27 +480,53 @@ Note: If you omit `parameters` or leave it empty, the framework injects a defaul
 | `edit_available` | `bool` | `True` | Allow editing in UI |
 | `answer` | `bool` | `True` | Include in response |
 
-### Connecting to Retrievals
+### Creating a Search from Scratch
 
-Retrieval tools reference Content API retrievals defined in `data/retrievals.py`:
+Use this order when creating a new search capability:
+
+1. Define a Retrieval
+2. Create a Retrieval Tool (Search)
+3. Register the Search in the Agent
+
+#### Step 1: Define a Retrieval
+
+Purpose: configure semantic search over a created topic. 
+
+Prerequisite: create the topic package first:
+
+```bash
+python manage.py starttopic product_docs
+```
+
+Location: `data/retrievals.py`
 
 ```python
-# data/retrievals.py
 from cogsol.content import BaseRetrieval
+from data.product_docs import ProductDocsTopic
+
 
 class ProductDocsRetrieval(BaseRetrieval):
     name = "product_docs_search"
-    topic = "product_docs"
+    topic = ProductDocsTopic
     num_refs = 10
+```
 
-# agents/searches.py
+#### Step 2: Create a Retrieval Tool (Search)
+
+Purpose: connect the retrieval definition to a tool the agent can call.
+
+Location: `agents/searches.py`
+
+```python
 from cogsol.tools import BaseRetrievalTool
 from data.retrievals import ProductDocsRetrieval
 
+
 class ProductDocsSearch(BaseRetrievalTool):
-    name = "product_docs_search"
-    description = "Search the product documentation"
+    name = "search_product_docs"
+    description = "Search product documentation"
     retrieval = ProductDocsRetrieval()
+    parameters = []
 ```
 
 **Important:** Before using retrieval tools, you must:
@@ -706,11 +728,12 @@ Retrievals define semantic search behavior. Place them in `data/retrievals.py`.
 ```python
 from cogsol.content import BaseRetrieval, ReorderingStrategy
 from data.formatters import DefaultFormatter
+from data.product_docs import ProductDocsTopic
 from data.product_docs.metadata import ProductMetadata
 
 class ProductDocsRetrieval(BaseRetrieval):
     name = "product_docs_search"
-    topic = "product_docs"
+    topic = ProductDocsTopic
     num_refs = 10
     reordering = False
     strategy_reordering = ReorderingStrategy.NONE
@@ -723,7 +746,7 @@ class ProductDocsRetrieval(BaseRetrieval):
 | Attribute | Type | Description |
 |-----------|------|-------------|
 | `name` | `str` | Retrieval identifier |
-| `topic` | `str` or `BaseTopic` | Topic name or topic class |
+| `topic` | `type[BaseTopic]` | Topic class reference (e.g. `ProductDocsTopic`) |
 | `num_refs` | `int` | Number of references to return |
 | `max_msg_length` | `int` | Max response length |
 | `reordering` | `bool` | Enable reordering |
@@ -777,11 +800,12 @@ class DetailedFormatter(BaseReferenceFormatter):
 # data/retrievals.py
 from cogsol.content import BaseRetrieval
 from data.formatters import DetailedFormatter
+from data.knowledge_base import KnowledgeBaseTopic
 from data.knowledge_base.metadata import DepartmentMetadata
 
 class KnowledgeBaseRetrieval(BaseRetrieval):
     name = "kb_search"
-    topic = "knowledge_base"
+    topic = KnowledgeBaseTopic
     num_refs = 8
     formatters = {"Text Document": DetailedFormatter}
     filters = [DepartmentMetadata]

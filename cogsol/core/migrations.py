@@ -18,6 +18,8 @@ def empty_state() -> dict[str, dict[str, dict[str, Any]]]:
         "lessons": {},
         "faqs": {},
         "fixed_responses": {},
+        "mcp_servers": {},
+        "mcp_tools": {},
     }
 
 
@@ -77,6 +79,8 @@ def _diff_bucket(entity: str, prev_defs: dict[str, Any], current_defs: dict[str,
         "lessons": ops.CreateLesson,
         "faqs": ops.CreateFAQ,
         "fixed_responses": ops.CreateFixedResponse,
+        "mcp_servers": ops.CreateMCPServer,
+        "mcp_tools": ops.CreateMCPTool,
     }[entity]
 
     for name, definition in current_defs.items():
@@ -166,7 +170,16 @@ def diff_states(
         )
     else:
         # Cognitive API entities (agents)
-        for entity in ["retrieval_tools", "tools", "agents", "lessons", "faqs", "fixed_responses"]:
+        for entity in [
+            "mcp_servers",
+            "mcp_tools",
+            "retrieval_tools",
+            "tools",
+            "agents",
+            "lessons",
+            "faqs",
+            "fixed_responses",
+        ]:
             operations.extend(
                 _diff_bucket(
                     entity,

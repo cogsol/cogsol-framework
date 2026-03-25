@@ -296,8 +296,16 @@ class Command(BaseCommand):
         api_base = get_cognitive_api_base_url()
         api_key = os.environ.get("COGSOL_API_KEY")
         content_base = get_content_api_base_url() or api_base
-        if not api_base:
-            print("COGSOL_API_BASE is required in .env to import.")
+        if not api_key and not os.environ.get("COGSOL_AUTH_CLIENT_ID"):
+            print(
+                "Error: No API credentials found.\n"
+                "Set COGSOL_API_KEY in your .env file to authenticate with the CogSol API.\n"
+                "\n"
+                "To obtain your credentials:\n"
+                "  1. Visit https://onboarding.cogsol.ai\n"
+                "  2. Configure the service API key in the implantation portal\n"
+                "  3. Copy the key to COGSOL_API_KEY in your .env file"
+            )
             return 1
 
         client = CogSolClient(api_base, api_key=api_key, content_base_url=content_base)
@@ -362,6 +370,9 @@ class {class_name}(BaseAgent):
     max_msg_length = {assistant.get("max_msg_length") or 0}
     max_consecutive_tool_calls = {assistant.get("max_consecutive_tool_calls") or 0}
     temperature = {assistant.get("temperature") or 0.0}
+    initial_message = {assistant.get("initial_message")!r}
+    forced_termination_message = {assistant.get("end_message")!r}
+    no_information_message = {assistant.get("not_info_message")!r}
 
     class Meta:
         name = {class_name!r}
@@ -559,6 +570,9 @@ class {class_name}(BaseAgent):
             "max_responses": assistant.get("max_responses"),
             "max_msg_length": assistant.get("max_msg_length"),
             "max_consecutive_tool_calls": assistant.get("max_consecutive_tool_calls"),
+            "initial_message": assistant.get("initial_message"),
+            "forced_termination_message": assistant.get("end_message"),
+            "no_information_message": assistant.get("not_info_message"),
             "streaming": assistant.get("streaming_available"),
             "realtime": assistant.get("realtime_available"),
             "tools": [n for n in (_tool_name_for_id(sid) for sid in tools_ids) if n],
