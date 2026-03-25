@@ -18,7 +18,7 @@ This document provides comprehensive reference documentation for building agents
 - [Retrieval Tools](#retrieval-tools)
   - [BaseRetrievalTool](#baseretrievaltool)
   - [Connecting to Retrievals](#connecting-to-retrievals)
-  - [Registering with an Agent](#registering-retrieval-tools-with-an-agent)
+  - [Registering Retrieval Tools](#registering-retrieval-tools)
 - [Related Content](#related-content)
   - [BaseFAQ](#basefaq)
   - [BaseFixedResponse](#basefixedresponse)
@@ -425,7 +425,7 @@ class WeatherTool(BaseTool):
 
 from cogsol.agents import BaseAgent, genconfigs
 from cogsol.prompts import Prompts
-from ..tools import WeatherTool, OrderLookupTool  # Import your tool classes
+from .tools import OrderLookupTool, ProductSearchTool
 
 
 class SupportAgent(BaseAgent):
@@ -434,17 +434,14 @@ class SupportAgent(BaseAgent):
 
     # Each tool must be explicitly listed here as an instance
     tools = [
-        WeatherTool(),
         OrderLookupTool(),
+        ProductSearchTool(),
     ]
+
+    # Other required attributes omitted for brevity
 ```
 
-After updating `agent.py`, regenerate and apply migrations so the agent configuration is synced:
-
-```bash
-python manage.py makemigrations agents
-python manage.py migrate agents
-```
+If this registration changes an existing agent definition, follow steps 8 and 9 in [Content Workflow](#content-workflow).
 
 ---
 
@@ -510,24 +507,14 @@ class ProductDocsSearch(BaseRetrievalTool):
     retrieval = ProductDocsRetrieval()
 ```
 
-#### Using in Agents
-
-```python
-from cogsol.agents import BaseAgent
-from .searches import ProductDocsSearch
-
-class SupportAgent(BaseAgent):
-    tools = [ProductDocsSearch()]
-```
-
 **Important:** Before using retrieval tools, you must:
 1. Create the topic in `data/`
 2. Create the retrieval in `data/retrievals.py`
 3. Run `python manage.py makemigrations data`
 4. Run `python manage.py migrate data`
-5. Register the retrieval tool in the agent's `tools` list in `agents/<name>/agent.py` (see below)
+5. Register the retrieval tool in the agent's `tools` list as described in [Registering with an Agent](#registering-with-an-agent)
 
-### Registering Retrieval Tools with an Agent
+### Registering Retrieval Tools
 
 > **Important:** Defining a retrieval tool class in `agents/searches.py` does **not** make it available to an agent automatically. Retrieval tools are registered with an agent exactly the same way as regular tools — see [Registering with an Agent](#registering-with-an-agent).
 
