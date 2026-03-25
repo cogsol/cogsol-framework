@@ -371,6 +371,14 @@ def run(self, chat=None, data=None, secrets=None, log=None, text: str = ""):
     return response  # String or structured data
 ```
 
+The `return` keyword is reserved and is automatically translated to `response =`. This means `return` does **not** terminate execution early. If you have access to the Platform, you can inspect the translated code directly.
+
+All imports must be placed inside the method that uses them, at the `run()` scope or inside the relevant helper method.
+
+Helper methods can be defined within the class, but code cannot be shared across class boundaries.
+
+For best practices and a full overview of tool capabilities, see [Script Tools in CogSol Docs](https://docs.cogsol.ai/docs/Tools/Script%20tools#talk-to-assistants).
+
 #### Complete Example
 
 ```python
