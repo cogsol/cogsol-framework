@@ -393,7 +393,7 @@ class WeatherTool(BaseTool):
         if log:
             log(f"Getting weather for {city}")
         
-        # Access secrets if needed
+        # Access secrets if needed & secrets must be created in the cogsol portal.
         api_key = secrets.get("WEATHER_API_KEY") if secrets else None
         
         # Tool logic
