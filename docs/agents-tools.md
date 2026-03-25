@@ -94,17 +94,20 @@ class QAAgent(BaseAgent):
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `tools` | `list[BaseTool]` | `[]` | Main tools available to agent |
-| `pretools` | `list[BaseTool]` | `[]` | Pre-processing tools |
+| `tools` | `list[BaseTool \| BaseRetrievalTool]` | `[]` | Main tools available to agent |
+| `pretools` | `list[BaseTool \| BaseRetrievalTool]` | `[]` | Pre-processing tools |
 
 ```python
 from cogsol.agents import BaseAgent
-from .tools import SearchTool, CalculatorTool
+from ..tools import CalculatorTool
+from ..searches import ProductDocsSearch
 
 class AssistantAgent(BaseAgent):
-    tools = [SearchTool(), CalculatorTool()]
+    tools = [CalculatorTool(), ProductDocsSearch()]
     pretools = [ContextLoader()]
 ```
+
+Use script tools (`BaseTool`) for capabilities/actions and retrieval tools (`BaseRetrievalTool`) for document search. Both are configured in the same list.
 
 #### Limits
 
@@ -238,7 +241,7 @@ def definition(cls) -> dict[str, Any]:
 
 ## Tools
 
-Tools extend agent capabilities with custom functionality.
+Tools (`BaseTool`) are general Python capabilities that execute actions such as calculations, formatting, API calls, or orchestration.
 
 ### BaseTool
 
@@ -286,30 +289,24 @@ Define parameters using the `@tool_params` decorator:
 ```python
 from cogsol.tools import BaseTool, tool_params
 
-class SearchTool(BaseTool):
-    description = "Search the knowledge base"
+class CurrencyFormatterTool(BaseTool):
+    description = "Format a numeric amount as currency"
     
     @tool_params(
-        query={
-            "description": "Search query string",
-            "type": "string",
+        amount={
+            "description": "Amount to format",
+            "type": "number",
             "required": True
         },
-        limit={
-            "description": "Maximum results to return",
-            "type": "integer",
-            "required": False
-        },
-        include_metadata={
-            "description": "Include metadata in results",
-            "type": "boolean",
+        currency={
+            "description": "Currency symbol",
+            "type": "string",
             "required": False
         }
     )
     def run(self, chat=None, data=None, secrets=None, log=None,
-            query: str = "", limit: int = 10, include_metadata: bool = False):
-        # Implementation
-        pass
+            amount: float = 0.0, currency: str = "$"):
+        return f"{currency}{amount:,.2f}"
 ```
 
 #### Parameter Schema
@@ -329,14 +326,14 @@ class SearchTool(BaseTool):
 Parameters can also be defined in the docstring:
 
 ```python
-class SearchTool(BaseTool):
+class GreetingTool(BaseTool):
     def run(self, chat=None, data=None, secrets=None, log=None,
-            query: str = "", limit: int = 10):
+            name: str = "", formal: bool = False):
         """
-        query: The search query to execute.
-        limit: Maximum number of results to return.
+        name: Person to greet.
+        formal: Whether to use a formal greeting.
         """
-        pass
+        return f"Hello, {name}." if formal else f"Hi {name}!"
 ```
 
 ### Tool Implementation
@@ -369,9 +366,8 @@ def run(
 The `run()` method should return the tool's response:
 
 ```python
-def run(self, chat=None, data=None, secrets=None, log=None, query: str = ""):
-    results = self._search(query)
-    response = self._format_results(results)
+def run(self, chat=None, data=None, secrets=None, log=None, text: str = ""):
+    response = text.upper()
     return response  # String or structured data
 ```
 
@@ -397,7 +393,7 @@ class WeatherTool(BaseTool):
         if log:
             log(f"Getting weather for {city}")
         
-        # Access secrets if needed
+        # Access secrets if needed & secrets must be created in the cogsol portal.
         api_key = secrets.get("WEATHER_API_KEY") if secrets else None
         
         # Tool logic
@@ -418,7 +414,7 @@ class WeatherTool(BaseTool):
 
 ## Retrieval Tools
 
-Retrieval tools connect agents to Content API retrievals for semantic search over document collections.
+Retrieval tools (`BaseRetrievalTool`) are searches specialized for semantic retrieval over topic documents in the Content API.
 
 ### BaseRetrievalTool
 
@@ -511,7 +507,6 @@ Add the search tool to the agent `tools` list. Without this step, the search is 
 ```python
 from cogsol.agents import BaseAgent
 from ..searches import ProductDocsSearch
-
 
 class SupportAgent(BaseAgent):
     tools = [ProductDocsSearch()]
