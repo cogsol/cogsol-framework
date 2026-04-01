@@ -74,12 +74,8 @@ def _download_tarball(repo: str, ref: str) -> Path:
             data = resp.read()
     except error.HTTPError as exc:
         if exc.code == 404:
-            raise CookbookError(
-                f"Cookbook repository or ref not found: {repo}@{ref}"
-            ) from exc
-        raise CookbookError(
-            f"GitHub API error ({exc.code}): {exc.reason}"
-        ) from exc
+            raise CookbookError(f"Cookbook repository or ref not found: {repo}@{ref}") from exc
+        raise CookbookError(f"GitHub API error ({exc.code}): {exc.reason}") from exc
     except error.URLError as exc:
         raise CookbookError(f"Network error: {exc.reason}") from exc
 
@@ -139,7 +135,7 @@ def _extract_subdirectory(tarball_path: Path, prefix: str) -> Path:
                 if not _safe_member(member, full_prefix):
                     continue
                 # Strip the top-level + prefix from the path
-                relative = member.name[len(full_prefix):]
+                relative = member.name[len(full_prefix) :]
                 if not relative:
                     continue
                 found = True
@@ -154,9 +150,7 @@ def _extract_subdirectory(tarball_path: Path, prefix: str) -> Path:
 
             if not found:
                 shutil.rmtree(extract_dir, ignore_errors=True)
-                raise CookbookError(
-                    f"'{prefix.rstrip('/')}' not found in the cookbook repository."
-                )
+                raise CookbookError(f"'{prefix.rstrip('/')}' not found in the cookbook repository.")
     except tarfile.TarError as exc:
         shutil.rmtree(extract_dir, ignore_errors=True)
         raise CookbookError(f"Failed to read tarball: {exc}") from exc
@@ -164,9 +158,7 @@ def _extract_subdirectory(tarball_path: Path, prefix: str) -> Path:
     return extract_dir
 
 
-def list_cookbook_entries(
-    kind: str, ref: str = "main", repo: str | None = None
-) -> list[str]:
+def list_cookbook_entries(kind: str, ref: str = "main", repo: str | None = None) -> list[str]:
     """List available templates or examples from the cookbook.
 
     Args:
@@ -186,12 +178,8 @@ def list_cookbook_entries(
             data: dict[str, Any] = json.loads(resp.read().decode())
     except error.HTTPError as exc:
         if exc.code == 404:
-            raise CookbookError(
-                f"Cookbook repository or ref not found: {repo}@{ref}"
-            ) from exc
-        raise CookbookError(
-            f"GitHub API error ({exc.code}): {exc.reason}"
-        ) from exc
+            raise CookbookError(f"Cookbook repository or ref not found: {repo}@{ref}") from exc
+        raise CookbookError(f"GitHub API error ({exc.code}): {exc.reason}") from exc
     except error.URLError as exc:
         raise CookbookError(f"Network error: {exc.reason}") from exc
 
@@ -199,12 +187,8 @@ def list_cookbook_entries(
     entries: list[str] = []
     for item in data.get("tree", []):
         path = item.get("path", "")
-        if (
-            item.get("type") == "tree"
-            and path.startswith(prefix)
-            and path.count("/") == 1
-        ):
-            entries.append(path[len(prefix):])
+        if item.get("type") == "tree" and path.startswith(prefix) and path.count("/") == 1:
+            entries.append(path[len(prefix) :])
 
     return sorted(entries)
 
@@ -229,9 +213,7 @@ def fetch_cookbook_directory(
     return _extract_subdirectory(tarball_path, prefix)
 
 
-def materialize_cookbook(
-    source_dir: Path, target_dir: Path, force: bool = False
-) -> None:
+def materialize_cookbook(source_dir: Path, target_dir: Path, force: bool = False) -> None:
     """Copy files from an extracted cookbook directory into the target workspace.
 
     Args:

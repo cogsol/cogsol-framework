@@ -201,9 +201,7 @@ class TestExtractSubdirectory:
             assert not (result / "file.py").exists()
 
     def test_missing_directory_raises_error(self, tmp_path):
-        tarball_bytes = _make_tarball(
-            {"owner-repo-abc123/README.md": "root readme"}
-        )
+        tarball_bytes = _make_tarball({"owner-repo-abc123/README.md": "root readme"})
         tarball_path = tmp_path / "test.tar.gz"
         tarball_path.write_bytes(tarball_bytes)
 
@@ -346,9 +344,7 @@ class TestFetchCookbookDirectory:
             _mock_urlopen(tarball_bytes),
             mock.patch("cogsol.core.cookbook.CACHE_DIR", tmp_path),
         ):
-            result = fetch_cookbook_directory(
-                "templates", "demo", ref="main", repo="owner/repo"
-            )
+            result = fetch_cookbook_directory("templates", "demo", ref="main", repo="owner/repo")
             assert (result / "main.py").read_text() == "code"
             assert (result / "README.md").read_text() == "docs"
 
@@ -364,9 +360,7 @@ class TestStartprojectCookbook:
         with tempfile.TemporaryDirectory() as tmpdir:
             project_dir = Path(tmpdir) / "myproject"
             cmd = StartprojectCommand()
-            result = cmd.handle(
-                project_path=None, name="myproject", directory=str(project_dir)
-            )
+            result = cmd.handle(project_path=None, name="myproject", directory=str(project_dir))
             assert result == 0
             assert (project_dir / "manage.py").exists()
             assert (project_dir / "settings.py").exists()

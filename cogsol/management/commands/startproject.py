@@ -319,7 +319,9 @@ class Command(BaseCommand):
                 return 1
 
             repo = _get_repo()
-            print(f"Created CogSol project '{name}' from {repo}:{kind}/{entry_name} at {target_dir}")
+            print(
+                f"Created CogSol project '{name}' from {repo}:{kind}/{entry_name} at {target_dir}"
+            )
             return 0
 
         # --- Default: generate from built-in templates ---
