@@ -144,9 +144,10 @@ def _extract_subdirectory(tarball_path: Path, prefix: str) -> Path:
                     target.mkdir(parents=True, exist_ok=True)
                 elif member.isfile():
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    with tf.extractfile(member) as src:
-                        if src is not None:
-                            target.write_bytes(src.read())
+                    src = tf.extractfile(member)
+                    if src is not None:
+                        target.write_bytes(src.read())
+                        src.close()
 
             if not found:
                 shutil.rmtree(extract_dir, ignore_errors=True)

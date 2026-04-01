@@ -305,7 +305,7 @@ class Command(BaseCommand):
 
         if from_template or from_example:
             kind = "templates" if from_template else "examples"
-            entry_name = from_template or from_example
+            entry_name = str(from_template or from_example)
 
             if target_dir.exists() and any(target_dir.iterdir()) and not force:
                 print(f"Destination {target_dir} is not empty (use --force to overwrite).")
