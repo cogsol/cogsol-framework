@@ -15,7 +15,6 @@ from urllib import error
 import pytest
 
 from cogsol.core.cookbook import (
-    CACHE_DIR,
     CookbookError,
     _cache_is_fresh,
     _download_tarball,
@@ -27,7 +26,6 @@ from cogsol.core.cookbook import (
     materialize_cookbook,
 )
 from cogsol.management.commands.startproject import Command as StartprojectCommand
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -144,6 +142,18 @@ class TestDownloadTarball:
                 result = _download_tarball("owner/repo", "main")
                 mock_url.assert_not_called()
                 assert result == cached
+
+    def test_ref_with_slash_sanitized(self, tmp_path):
+        tarball_bytes = _make_tarball({"owner-repo-abc/README.md": "hello"})
+        with (
+            _mock_urlopen(tarball_bytes),
+            mock.patch("cogsol.core.cookbook.CACHE_DIR", tmp_path),
+        ):
+            result = _download_tarball("owner/repo", "feature/new-agent")
+            assert result.exists()
+            # The slash in the ref should be replaced, not create subdirectories
+            assert result.parent == tmp_path / "tarballs"
+            assert "feature--new-agent" in result.name
 
     def test_404_raises_cookbook_error(self, tmp_path):
         exc = error.HTTPError(

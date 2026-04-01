@@ -60,7 +60,8 @@ def _download_tarball(repo: str, ref: str) -> Path:
     tarballs_dir.mkdir(parents=True, exist_ok=True)
 
     slug = repo.replace("/", "--")
-    cache_path = tarballs_dir / f"{slug}-{ref}.tar.gz"
+    ref_slug = ref.replace("/", "--")
+    cache_path = tarballs_dir / f"{slug}-{ref_slug}.tar.gz"
 
     if _cache_is_fresh(cache_path, ref):
         return cache_path
