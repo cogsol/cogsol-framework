@@ -4,6 +4,14 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
+from cogsol.core.cookbook import (
+    CookbookError,
+    _get_repo,
+    fetch_cookbook_directory,
+    list_cookbook_entries,
+    materialize_cookbook,
+)
+from cogsol.core.env import load_dotenv
 from cogsol.management.base import BaseCommand
 
 MANAGE_PY = """\
@@ -209,17 +217,112 @@ class Command(BaseCommand):
     help = "Create a new CogSol project skeleton."
 
     def add_arguments(self, parser):
-        parser.add_argument("name", help="Project name (also used as directory name).")
+        parser.add_argument(
+            "name",
+            nargs="?",
+            default=None,
+            help="Project name (also used as directory name).",
+        )
         parser.add_argument(
             "directory",
             nargs="?",
             help="Optional destination directory. Defaults to the project name.",
         )
 
+        source_group = parser.add_mutually_exclusive_group()
+        source_group.add_argument(
+            "--from-template",
+            metavar="NAME",
+            help="Scaffold from a cookbook template (templates/<NAME>).",
+        )
+        source_group.add_argument(
+            "--from-example",
+            metavar="NAME",
+            help="Scaffold from a cookbook example (examples/<NAME>).",
+        )
+        source_group.add_argument(
+            "--list-templates",
+            action="store_true",
+            default=False,
+            help="List available cookbook templates.",
+        )
+        source_group.add_argument(
+            "--list-examples",
+            action="store_true",
+            default=False,
+            help="List available cookbook examples.",
+        )
+
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            default=False,
+            help="Overwrite existing files on conflict.",
+        )
+        parser.add_argument(
+            "--ref",
+            default="main",
+            help="Cookbook git ref (branch, tag, or commit SHA). Default: main.",
+        )
+
     def handle(self, project_path: Path | None, **options: Any) -> int:
-        name = str(options.get("name") or "")
+        env_path = (project_path or Path.cwd()) / ".env"
+        load_dotenv(env_path)
+
+        ref = options.get("ref", "main")
+
+        # --- List templates/examples ---
+        if options.get("list_templates") or options.get("list_examples"):
+            kind = "templates" if options.get("list_templates") else "examples"
+            try:
+                entries = list_cookbook_entries(kind, ref=ref)
+            except CookbookError as exc:
+                print(f"Error: {exc}")
+                return 1
+            repo = _get_repo()
+            if not entries:
+                print(f"No {kind} found in the cookbook (repo={repo}, ref={ref}).")
+                return 0
+            print(f"Available {kind} (repo={repo}, ref={ref}):")
+            for entry in entries:
+                print(f"  - {entry}")
+            return 0
+
+        # --- Validate name ---
+        name = options.get("name")
+        if not name:
+            print("Error: project name is required.")
+            return 1
+        name = str(name)
+
         directory = options.get("directory")
         target_dir = Path(directory or name).resolve()
+        force = bool(options.get("force"))
+
+        # --- Scaffold from cookbook template/example ---
+        from_template = options.get("from_template")
+        from_example = options.get("from_example")
+
+        if from_template or from_example:
+            kind = "templates" if from_template else "examples"
+            entry_name = from_template or from_example
+
+            if target_dir.exists() and any(target_dir.iterdir()) and not force:
+                print(f"Destination {target_dir} is not empty (use --force to overwrite).")
+                return 1
+
+            try:
+                source_dir = fetch_cookbook_directory(kind, entry_name, ref=ref)
+                materialize_cookbook(source_dir, target_dir, force=force)
+            except CookbookError as exc:
+                print(f"Error: {exc}")
+                return 1
+
+            repo = _get_repo()
+            print(f"Created CogSol project '{name}' from {repo}:{kind}/{entry_name} at {target_dir}")
+            return 0
+
+        # --- Default: generate from built-in templates ---
         if target_dir.exists() and any(target_dir.iterdir()):
             print(f"Destination {target_dir} is not empty.")
             return 1
@@ -245,7 +348,7 @@ class Command(BaseCommand):
             "data/retrievals.py": DATA_RETRIEVALS_PY,
             "data/migrations/__init__.py": "",
             "README.md": README.format(project_name=name),
-            ".env.example": "COGSOL_ENV=development\n#COGSOL_API_KEY=your-api-key\n# Optional: Azure AD B2C client credentials for JWT\n# If not provided, the Auth will be skipped\n# COGSOL_AUTH_CLIENT_ID=you-client-id\n# COGSOL_AUTH_SECRET=your-secret\n",
+            ".env.example": "COGSOL_ENV=development\n#COGSOL_API_KEY=your-api-key\n# Optional: Azure AD B2C client credentials for JWT\n# If not provided, the Auth will be skipped\n# COGSOL_AUTH_CLIENT_ID=you-client-id\n# COGSOL_AUTH_SECRET=your-secret\n\n# Optional: Custom cookbook repository (owner/repo format)\n# Defaults to cogsol/cogsol-cookbook when not set\n#COGSOL_COOKBOOK_REPO=cogsol/cogsol-cookbook\n",
         }
 
         for relative_path, content in files.items():

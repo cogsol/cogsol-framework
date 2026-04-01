@@ -255,6 +255,51 @@ cogsol-admin startproject <project-name> [directory]
 - `project-name`: Name of the project
 - `directory`: (Optional) Target directory
 
+#### Scaffold from Cookbook
+
+You can bootstrap a project from a template or example published in the [CogSol Cookbook](https://github.com/cogsol/cogsol-cookbook) repository:
+
+```bash
+# List available templates and examples
+cogsol-admin startproject --list-templates
+cogsol-admin startproject --list-examples
+
+# Create a project from a cookbook template
+cogsol-admin startproject my-agent --from-template subagents
+
+# Create a project from a cookbook example
+cogsol-admin startproject my-demo --from-example hello-world
+```
+
+**Options:**
+
+| Flag | Description |
+|------|-------------|
+| `--from-template NAME` | Scaffold from `templates/<NAME>` in the cookbook |
+| `--from-example NAME` | Scaffold from `examples/<NAME>` in the cookbook |
+| `--list-templates` | List available cookbook templates |
+| `--list-examples` | List available cookbook examples |
+| `--force` | Overwrite existing files when the target directory is not empty |
+| `--ref REF` | Pin the cookbook to a specific branch, tag, or commit SHA (default: `main`) |
+
+The `--ref` flag is useful for reproducibility — for example, to ensure all team members scaffold from the same cookbook version:
+
+```bash
+cogsol-admin startproject my-agent --from-template subagents --ref v1.0.0
+```
+
+#### Custom Cookbook Repository
+
+By default, the CLI fetches from `cogsol/cogsol-cookbook`. To use your own repository of templates and examples, set the `COGSOL_COOKBOOK_REPO` variable in your `.env` file or export it directly. If the repository is private, make sure to also set a `GITHUB_TOKEN` with appropriate access permissions.
+
+```env
+# .env
+COGSOL_COOKBOOK_REPO=my-org/my-cookbook
+GITHUB_TOKEN=your_github_token
+```
+
+The repository must follow the same directory convention: templates under `templates/` and examples under `examples/`. The CLI output always shows which repository is being used so you can verify the active configuration.
+
 ### `startagent`
 
 Create a new agent package with all required files.
@@ -713,6 +758,8 @@ Credentials are obtained from the CogSol onboarding portal at **[https://onboard
 | `COGSOL_ENV` | No | Environment name (e.g., `local`, `development`, `production`) |
 | `COGSOL_AUTH_CLIENT_ID` | No | Client Id provided for administrators |
 | `COGSOL_AUTH_SECRET` | No | Auth secret provided for administrators |
+| `COGSOL_COOKBOOK_REPO` | No | Custom cookbook repository in `owner/repo` format (default: `cogsol/cogsol-cookbook`) |
+| `GITHUB_TOKEN` | No | GitHub personal access token for accessing private cookbook repositories |
 
 ### Project Settings (`settings.py`)
 
