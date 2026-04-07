@@ -15,8 +15,8 @@ from urllib import error
 import pytest
 
 from cogsol.core.cookbook import (
-    CookbookError,
     DEFAULT_REPO,
+    CookbookError,
     _cache_is_fresh,
     _download_tarball,
     _extract_subdirectory,
