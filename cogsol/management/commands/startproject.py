@@ -1,18 +1,24 @@
 from __future__ import annotations
 
+import re
 import textwrap
 from pathlib import Path
 from typing import Any
 
 from cogsol.core.cookbook import (
     CookbookError,
-    _get_repo,
+    DEFAULT_REPO,
     fetch_cookbook_directory,
     list_cookbook_entries,
     materialize_cookbook,
 )
-from cogsol.core.env import load_dotenv
 from cogsol.management.base import BaseCommand
+
+_REPO_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+
+def _is_valid_repo_slug(value: str) -> bool:
+    return bool(_REPO_PATTERN.fullmatch(value))
 
 MANAGE_PY = """\
 #!/usr/bin/env python
@@ -264,22 +270,44 @@ class Command(BaseCommand):
             default="main",
             help="Cookbook git ref (branch, tag, or commit SHA). Default: main.",
         )
+        parser.add_argument(
+            "--cookbook-repo",
+            metavar="OWNER/REPO",
+            default=DEFAULT_REPO,
+            help=(
+                "Cookbook repository in OWNER/REPO format. "
+                f"Default: {DEFAULT_REPO}."
+            ),
+        )
+        parser.add_argument(
+            "--github-token",
+            default=None,
+            help="GitHub token for private cookbook repositories.",
+        )
 
     def handle(self, project_path: Path | None, **options: Any) -> int:
-        env_path = (project_path or Path.cwd()) / ".env"
-        load_dotenv(env_path)
-
         ref = options.get("ref", "main")
+        repo = str(options.get("cookbook_repo") or DEFAULT_REPO).strip()
+        github_token = options.get("github_token")
+        github_token = str(github_token).strip() if github_token else None
+
+        if not _is_valid_repo_slug(repo):
+            print("Error: --cookbook-repo must be in OWNER/REPO format.")
+            return 1
 
         # --- List templates/examples ---
         if options.get("list_templates") or options.get("list_examples"):
             kind = "templates" if options.get("list_templates") else "examples"
             try:
-                entries = list_cookbook_entries(kind, ref=ref)
+                entries = list_cookbook_entries(
+                    kind,
+                    ref=ref,
+                    repo=repo,
+                    github_token=github_token,
+                )
             except CookbookError as exc:
                 print(f"Error: {exc}")
                 return 1
-            repo = _get_repo()
             if not entries:
                 print(f"No {kind} found in the cookbook (repo={repo}, ref={ref}).")
                 return 0
@@ -312,13 +340,18 @@ class Command(BaseCommand):
                 return 1
 
             try:
-                source_dir = fetch_cookbook_directory(kind, entry_name, ref=ref)
+                source_dir = fetch_cookbook_directory(
+                    kind,
+                    entry_name,
+                    ref=ref,
+                    repo=repo,
+                    github_token=github_token,
+                )
                 materialize_cookbook(source_dir, target_dir, force=force)
             except CookbookError as exc:
                 print(f"Error: {exc}")
                 return 1
 
-            repo = _get_repo()
             print(
                 f"Created CogSol project '{name}' from {repo}:{kind}/{entry_name} at {target_dir}"
             )
@@ -350,7 +383,6 @@ class Command(BaseCommand):
             "data/retrievals.py": DATA_RETRIEVALS_PY,
             "data/migrations/__init__.py": "",
             "README.md": README.format(project_name=name),
-            ".env.example": "COGSOL_ENV=development\n#COGSOL_API_KEY=your-api-key\n# Optional: Azure AD B2C client credentials for JWT\n# If not provided, the Auth will be skipped\n# COGSOL_AUTH_CLIENT_ID=you-client-id\n# COGSOL_AUTH_SECRET=your-secret\n\n# Optional: Custom cookbook repository (owner/repo format)\n# Defaults to cogsol/cogsol-cookbook when not set\n#COGSOL_COOKBOOK_REPO=cogsol/cogsol-cookbook\n",
         }
 
         for relative_path, content in files.items():

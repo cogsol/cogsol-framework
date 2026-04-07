@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `cogsol-admin startproject` cookbook source/auth configuration is now explicit via CLI flags (`--cookbook-repo`, `--github-token`) instead of relying on `.env` cookbook variables.
+
 ---
 
 ## [0.2.1] - 2026-03-11

@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import shutil
 import tarfile
@@ -28,16 +27,32 @@ class CookbookError(RuntimeError):
     """Raised when a cookbook operation fails."""
 
 
-def _get_repo() -> str:
-    return os.environ.get("COGSOL_COOKBOOK_REPO", DEFAULT_REPO)
-
-
-def _build_request(url: str) -> request.Request:
+def _build_request(url: str, github_token: str | None = None) -> request.Request:
     req = request.Request(url, headers={"User-Agent": "cogsol-framework"})
-    token = os.environ.get("GITHUB_TOKEN")
-    if token:
-        req.add_header("Authorization", f"token {token}")
+    if github_token:
+        req.add_header("Authorization", f"token {github_token}")
     return req
+
+
+def _raise_github_http_error(
+    exc: error.HTTPError,
+    repo: str,
+    ref: str,
+    github_token: str | None = None,
+) -> None:
+    if exc.code == 404:
+        raise CookbookError(f"Cookbook repository or ref not found: {repo}@{ref}") from exc
+    if exc.code in {401, 403}:
+        if github_token:
+            raise CookbookError(
+                f"Access denied to cookbook repository: {repo}@{ref}. "
+                "Verify that your token has repository access."
+            ) from exc
+        raise CookbookError(
+            f"Access denied to cookbook repository: {repo}@{ref}. "
+            "If the repository is private, provide a GitHub token."
+        ) from exc
+    raise CookbookError(f"GitHub API error ({exc.code}): {exc.reason}") from exc
 
 
 def _is_sha(ref: str) -> bool:
@@ -54,7 +69,7 @@ def _cache_is_fresh(path: Path, ref: str) -> bool:
     return age < CACHE_TTL_SECONDS
 
 
-def _download_tarball(repo: str, ref: str) -> Path:
+def _download_tarball(repo: str, ref: str, github_token: str | None = None) -> Path:
     """Download the repo tarball and cache it. Returns path to the .tar.gz."""
     tarballs_dir = CACHE_DIR / "tarballs"
     tarballs_dir.mkdir(parents=True, exist_ok=True)
@@ -67,15 +82,13 @@ def _download_tarball(repo: str, ref: str) -> Path:
         return cache_path
 
     url = TARBALL_URL.format(repo=repo, ref=ref)
-    req = _build_request(url)
+    req = _build_request(url, github_token=github_token)
 
     try:
         with request.urlopen(req, timeout=60) as resp:
             data = resp.read()
     except error.HTTPError as exc:
-        if exc.code == 404:
-            raise CookbookError(f"Cookbook repository or ref not found: {repo}@{ref}") from exc
-        raise CookbookError(f"GitHub API error ({exc.code}): {exc.reason}") from exc
+        _raise_github_http_error(exc, repo=repo, ref=ref, github_token=github_token)
     except error.URLError as exc:
         raise CookbookError(f"Network error: {exc.reason}") from exc
 
@@ -159,28 +172,32 @@ def _extract_subdirectory(tarball_path: Path, prefix: str) -> Path:
     return extract_dir
 
 
-def list_cookbook_entries(kind: str, ref: str = "main", repo: str | None = None) -> list[str]:
+def list_cookbook_entries(
+    kind: str,
+    ref: str = "main",
+    repo: str | None = None,
+    github_token: str | None = None,
+) -> list[str]:
     """List available templates or examples from the cookbook.
 
     Args:
         kind: Either ``"templates"`` or ``"examples"``.
         ref: Git ref (branch, tag, or commit SHA).
         repo: GitHub repo in ``owner/name`` format.
+        github_token: Optional GitHub token for private repos.
 
     Returns:
         Sorted list of entry names.
     """
-    repo = repo or _get_repo()
+    repo = repo or DEFAULT_REPO
     url = TREE_API_URL.format(repo=repo, ref=ref)
-    req = _build_request(url)
+    req = _build_request(url, github_token=github_token)
 
     try:
         with request.urlopen(req, timeout=30) as resp:
             data: dict[str, Any] = json.loads(resp.read().decode())
     except error.HTTPError as exc:
-        if exc.code == 404:
-            raise CookbookError(f"Cookbook repository or ref not found: {repo}@{ref}") from exc
-        raise CookbookError(f"GitHub API error ({exc.code}): {exc.reason}") from exc
+        _raise_github_http_error(exc, repo=repo, ref=ref, github_token=github_token)
     except error.URLError as exc:
         raise CookbookError(f"Network error: {exc.reason}") from exc
 
@@ -195,7 +212,11 @@ def list_cookbook_entries(kind: str, ref: str = "main", repo: str | None = None)
 
 
 def fetch_cookbook_directory(
-    kind: str, name: str, ref: str = "main", repo: str | None = None
+    kind: str,
+    name: str,
+    ref: str = "main",
+    repo: str | None = None,
+    github_token: str | None = None,
 ) -> Path:
     """Download and extract a template or example from the cookbook.
 
@@ -204,12 +225,13 @@ def fetch_cookbook_directory(
         name: Name of the template/example directory.
         ref: Git ref (branch, tag, or commit SHA).
         repo: GitHub repo in ``owner/name`` format.
+        github_token: Optional GitHub token for private repos.
 
     Returns:
         Path to the extracted directory.
     """
-    repo = repo or _get_repo()
-    tarball_path = _download_tarball(repo, ref)
+    repo = repo or DEFAULT_REPO
+    tarball_path = _download_tarball(repo, ref, github_token=github_token)
     prefix = f"{kind.rstrip('/')}/{name}"
     return _extract_subdirectory(tarball_path, prefix)
 

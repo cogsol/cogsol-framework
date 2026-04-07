@@ -16,6 +16,7 @@ import pytest
 
 from cogsol.core.cookbook import (
     CookbookError,
+    DEFAULT_REPO,
     _cache_is_fresh,
     _download_tarball,
     _extract_subdirectory,
@@ -155,6 +156,29 @@ class TestDownloadTarball:
             assert result.parent == tmp_path / "tarballs"
             assert "feature--new-agent" in result.name
 
+    def test_includes_auth_header_when_token_is_provided(self, tmp_path):
+        tarball_bytes = _make_tarball({"owner-repo-abc/README.md": "hello"})
+
+        resp = mock.MagicMock()
+        resp.read.return_value = tarball_bytes
+        resp.__enter__ = mock.Mock(return_value=resp)
+        resp.__exit__ = mock.Mock(return_value=False)
+
+        def _fake_urlopen(req, timeout=60):
+            assert req.get_header("Authorization") == "token ghp_test_token"
+            return resp
+
+        with (
+            mock.patch("cogsol.core.cookbook.request.urlopen", side_effect=_fake_urlopen),
+            mock.patch("cogsol.core.cookbook.CACHE_DIR", tmp_path),
+        ):
+            result = _download_tarball(
+                "owner/repo",
+                "main",
+                github_token="ghp_test_token",
+            )
+            assert result.exists()
+
     def test_404_raises_cookbook_error(self, tmp_path):
         exc = error.HTTPError(
             url="https://example.com", code=404, msg="Not Found", hdrs={}, fp=None
@@ -280,6 +304,35 @@ class TestListCookbookEntries:
             with pytest.raises(CookbookError, match="not found"):
                 list_cookbook_entries("templates", ref="v999", repo="owner/repo")
 
+    def test_401_without_token_includes_private_repo_hint(self):
+        exc = error.HTTPError(
+            url="https://example.com",
+            code=401,
+            msg="Unauthorized",
+            hdrs={},
+            fp=None,
+        )
+        with mock.patch("cogsol.core.cookbook.request.urlopen", side_effect=exc):
+            with pytest.raises(CookbookError, match="provide a GitHub token"):
+                list_cookbook_entries("templates", ref="main", repo="owner/private")
+
+    def test_403_with_token_includes_access_denied_hint(self):
+        exc = error.HTTPError(
+            url="https://example.com",
+            code=403,
+            msg="Forbidden",
+            hdrs={},
+            fp=None,
+        )
+        with mock.patch("cogsol.core.cookbook.request.urlopen", side_effect=exc):
+            with pytest.raises(CookbookError, match="Verify that your token has repository access"):
+                list_cookbook_entries(
+                    "templates",
+                    ref="main",
+                    repo="owner/private",
+                    github_token="ghp_valid_but_insufficient",
+                )
+
 
 # ---------------------------------------------------------------------------
 # Unit tests — materialize
@@ -394,6 +447,112 @@ class TestStartprojectCookbook:
                 directory=None,
             )
         assert result == 0
+
+    def test_list_templates_uses_custom_repo(self):
+        tree_response = json.dumps(
+            {
+                "sha": "abc",
+                "tree": [
+                    {"path": "templates/demo", "type": "tree"},
+                ],
+            }
+        ).encode()
+        cmd = StartprojectCommand()
+        with _mock_urlopen(tree_response) as mock_url:
+            result = cmd.handle(
+                project_path=None,
+                name=None,
+                list_templates=True,
+                list_examples=False,
+                from_template=None,
+                from_example=None,
+                force=False,
+                ref="main",
+                directory=None,
+                cookbook_repo="my-org/my-cookbook",
+            )
+        assert result == 0
+        url_used = mock_url.call_args[0][0].full_url
+        assert "/repos/my-org/my-cookbook/" in url_used
+
+    def test_invalid_cookbook_repo_returns_1(self):
+        cmd = StartprojectCommand()
+        result = cmd.handle(
+            project_path=None,
+            name=None,
+            list_templates=True,
+            list_examples=False,
+            from_template=None,
+            from_example=None,
+            force=False,
+            ref="main",
+            directory=None,
+            cookbook_repo="invalid-format",
+        )
+        assert result == 1
+
+    def test_list_templates_with_token_sets_auth_header(self):
+        tree_response = json.dumps(
+            {
+                "sha": "abc",
+                "tree": [
+                    {"path": "templates/demo", "type": "tree"},
+                ],
+            }
+        ).encode()
+        cmd = StartprojectCommand()
+
+        resp = mock.MagicMock()
+        resp.read.return_value = tree_response
+        resp.__enter__ = mock.Mock(return_value=resp)
+        resp.__exit__ = mock.Mock(return_value=False)
+
+        def _fake_urlopen(req, timeout=30):
+            assert req.get_header("Authorization") == "token ghp_private_repo_token"
+            return resp
+
+        with mock.patch("cogsol.core.cookbook.request.urlopen", side_effect=_fake_urlopen):
+            result = cmd.handle(
+                project_path=None,
+                name=None,
+                list_templates=True,
+                list_examples=False,
+                from_template=None,
+                from_example=None,
+                force=False,
+                ref="main",
+                directory=None,
+                cookbook_repo="my-org/private-cookbook",
+                github_token="ghp_private_repo_token",
+            )
+        assert result == 0
+
+    def test_uses_default_repo_when_cookbook_repo_not_provided(self):
+        tree_response = json.dumps(
+            {
+                "sha": "abc",
+                "tree": [
+                    {"path": "templates/demo", "type": "tree"},
+                ],
+            }
+        ).encode()
+
+        cmd = StartprojectCommand()
+        with _mock_urlopen(tree_response) as mock_url:
+            result = cmd.handle(
+                project_path=None,
+                name=None,
+                list_templates=True,
+                list_examples=False,
+                from_template=None,
+                from_example=None,
+                force=False,
+                ref="main",
+                directory=None,
+            )
+        assert result == 0
+        url_used = mock_url.call_args[0][0].full_url
+        assert f"/repos/{DEFAULT_REPO}/" in url_used
 
     def test_list_examples(self):
         tree_response = json.dumps(

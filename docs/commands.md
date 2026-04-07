@@ -158,6 +158,34 @@ cogsol-admin startproject myassistants
 cogsol-admin startproject myassistants /path/to/projects/my-ai
 ```
 
+#### Cookbook Scaffolding
+
+Use cookbook templates/examples directly from GitHub:
+
+```bash
+# List templates/examples from the default cookbook repo
+cogsol-admin startproject --list-templates
+cogsol-admin startproject --list-examples
+
+# Scaffold from a public custom cookbook
+cogsol-admin startproject my-agent --from-template subagents --cookbook-repo my-org/my-cookbook
+
+# Scaffold from a private cookbook
+cogsol-admin startproject my-agent --from-template internal-agent \
+    --cookbook-repo my-org/private-cookbook \
+    --github-token $GITHUB_TOKEN
+```
+
+| Option | Description |
+|--------|-------------|
+| `--from-template NAME` | Scaffold from `templates/NAME` |
+| `--from-example NAME` | Scaffold from `examples/NAME` |
+| `--list-templates` | List available templates in the selected cookbook repo |
+| `--list-examples` | List available examples in the selected cookbook repo |
+| `--ref REF` | Cookbook git ref (branch, tag, or commit SHA). Default: `main` |
+| `--cookbook-repo OWNER/REPO` | Cookbook repository. Default: `cogsol/cogsol-cookbook` |
+| `--github-token TOKEN` | GitHub token for private cookbook repositories |
+
 #### Error Conditions
 
 | Error | Cause | Solution |

@@ -281,6 +281,8 @@ cogsol-admin startproject my-demo --from-example hello-world
 | `--list-examples` | List available cookbook examples |
 | `--force` | Overwrite existing files when the target directory is not empty |
 | `--ref REF` | Pin the cookbook to a specific branch, tag, or commit SHA (default: `main`) |
+| `--cookbook-repo OWNER/REPO` | Use a custom cookbook repository (default: `cogsol/cogsol-cookbook`) |
+| `--github-token TOKEN` | GitHub token for private cookbook repositories |
 
 The `--ref` flag is useful for reproducibility — for example, to ensure all team members scaffold from the same cookbook version:
 
@@ -290,12 +292,18 @@ cogsol-admin startproject my-agent --from-template subagents --ref v1.0.0
 
 #### Custom Cookbook Repository
 
-By default, the CLI fetches from `cogsol/cogsol-cookbook`. To use your own repository of templates and examples, set the `COGSOL_COOKBOOK_REPO` variable in your `.env` file or export it directly. If the repository is private, make sure to also set a `GITHUB_TOKEN` with appropriate access permissions.
+By default, the CLI fetches from `cogsol/cogsol-cookbook`. To use your own repository, pass `--cookbook-repo OWNER/REPO` directly to `startproject`. If the repository is private, also pass `--github-token`.
 
-```env
-# .env
-COGSOL_COOKBOOK_REPO=my-org/my-cookbook
-GITHUB_TOKEN=your_github_token
+```bash
+# Public custom cookbook
+cogsol-admin startproject --list-templates --cookbook-repo my-org/my-cookbook
+cogsol-admin startproject my-agent --from-template subagents --cookbook-repo my-org/my-cookbook
+
+# Private custom cookbook
+cogsol-admin startproject my-agent \
+    --from-template internal-agent \
+    --cookbook-repo my-org/private-cookbook \
+    --github-token $GITHUB_TOKEN
 ```
 
 The repository must follow the same directory convention: templates under `templates/` and examples under `examples/`. The CLI output always shows which repository is being used so you can verify the active configuration.
@@ -758,8 +766,6 @@ Credentials are obtained from the CogSol onboarding portal at **[https://onboard
 | `COGSOL_ENV` | No | Environment name (e.g., `local`, `development`, `production`) |
 | `COGSOL_AUTH_CLIENT_ID` | No | Client Id provided for administrators |
 | `COGSOL_AUTH_SECRET` | No | Auth secret provided for administrators |
-| `COGSOL_COOKBOOK_REPO` | No | Custom cookbook repository in `owner/repo` format (default: `cogsol/cogsol-cookbook`) |
-| `GITHUB_TOKEN` | No | GitHub personal access token for accessing private cookbook repositories |
 
 ### Project Settings (`settings.py`)
 
