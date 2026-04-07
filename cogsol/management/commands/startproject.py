@@ -20,6 +20,7 @@ _REPO_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 def _is_valid_repo_slug(value: str) -> bool:
     return bool(_REPO_PATTERN.fullmatch(value))
 
+
 MANAGE_PY = """\
 #!/usr/bin/env python
 import sys
@@ -274,10 +275,7 @@ class Command(BaseCommand):
             "--cookbook-repo",
             metavar="OWNER/REPO",
             default=DEFAULT_REPO,
-            help=(
-                "Cookbook repository in OWNER/REPO format. "
-                f"Default: {DEFAULT_REPO}."
-            ),
+            help=("Cookbook repository in OWNER/REPO format. " f"Default: {DEFAULT_REPO}."),
         )
         parser.add_argument(
             "--github-token",
