@@ -131,7 +131,7 @@ agents/salesagent/
 
 ### 3. Configure Environment
 
-To use CogSol you need API credentials. Visit **[https://onboarding.cogsol.ai](https://onboarding.cogsol.ai)** to obtain your credentials. Make sure to also configure the service API key in the implantation portal before running any commands.
+CogSol requires API credentials. Visit **[https://onboarding.cogsol.ai](https://onboarding.cogsol.ai)** to obtain them and configure your service API key in the portal before running any commands.
 
 Copy `.env.example` to `.env` and fill in the credentials obtained from the portal:
 
@@ -156,14 +156,15 @@ python manage.py makemigrations
 python manage.py migrate
 ```
 
-### 6. Configure API key of your preferred LLM provider
+### 6. Configure Your LLM Provider API Key
 
-To run your agents, you’ll need to configure first the API key of your preferred LLM provider:
+To run your agents, configure the API key for your preferred LLM provider. The following providers are supported:
+
 - OpenAI
 - Google Gemini
 - Anthropic
 
-You can add your API key at [Cogsol platform](https://platform.cogsol.ai/configuration/services)
+Add your API key at the [CogSol Platform](https://platform.cogsol.ai/configuration/services).
 
 
 ### 7. Chat with Your Agent
@@ -174,7 +175,7 @@ python manage.py chat --agent SalesAgent
 
 ### 8. Add Document Topics (Optional)
 
-`documentation` in the examples below is only a sample topic name. You can use any topic name that fits your use case.
+> `documentation` in the examples below is a sample topic name, use any name that fits your use case.
 
 ```bash
 # Create a topic for documents
@@ -304,7 +305,6 @@ python manage.py starttopic <topic-name> [--path <parent-path>]
 
 **Examples:**
 ```bash
-# `documentation` is just an example topic name.
 # Create a root topic
 python manage.py starttopic documentation
 
@@ -417,26 +417,26 @@ class CustomerSupportAgent(BaseAgent):
     # Core configuration
     system_prompt = Prompts.load("support.md")
     generation_config = genconfigs.QA()
-    
+
     # Tools
     tools = [MyTool()]
     pretools = []
-    
+
     # Limits
     max_interactions = 10
     max_msg_length = 2048
     max_consecutive_tool_calls = 5
     temperature = 0.3
-    
+
     # Behaviors
     initial_message = "Hello! How can I help you today?"
     forced_termination_message = "Thank you for chatting!"
     no_information_message = "I don't have information on that topic."
-    
+
     # Features
     streaming = False
     realtime = False
-    
+
     class Meta:
         name = "CustomerSupportAgent"
         chat_name = "Customer Support"
@@ -462,43 +462,57 @@ class CustomerSupportAgent(BaseAgent):
 
 ### Tools
 
-Tools extend agent capabilities. Define tools in `agents/tools.py`:
+Tools extend agent capabilities. The language model decides when to execute them and fills in the parameter values based on the prompt and conversation context.
+
+There are three types of tools on the platform: **Scripts**, **MCP**, and **Searches**.
+
+Define Script Tools in `agents/tools.py`:
 
 ```python
 from cogsol.tools import BaseTool, tool_params
 
-# class SearchTool(BaseTool):
-#     description = "Search for information in the knowledge base."
-#     
-#     @tool_params(
-#         query={"description": "Search query", "type": "string", "required": True},
-#         limit={"description": "Max results", "type": "integer", "required": False},
-#     )
-#     def run(self, chat=None, data=None, secrets=None, log=None, 
-#             query: str = "", limit: int = 10):
-#         """
-#         query: The search query.
-#         limit: Maximum number of results.
-#         """
-#         # Implementation here
-#         results = perform_search(query, limit)
-#         response = format_results(results)
-#         return response
+class DateTool(BaseTool):
+    """Tool that returns the current date in a desired format."""
+
+    name = "get_date"
+    description = "Return the current date in desired format or YYYY-MM-DD"
+    show_tool_message = False
+
+    @tool_params(
+        format={
+            "description": "Format to retrieve the date",
+            "type": "string",
+            "required": False,
+        }
+    )
+    def run(self, format="", chat=None, data=None, secrets=None, log=None):
+        from datetime import datetime
+        return datetime.utcnow().strftime(format or "%Y-%m-%d")
 ```
+
+#### Rules
+
+- The tool's main logic must be implemented in the `run()` method.
+- Helper methods can be defined within the class, but code cannot be shared across class boundaries.
+- All imports must be placed inside the method that uses them — at the `run()` scope or inside the relevant helper method.
+- The `return` keyword is reserved and is automatically translated to `response =`. This means `return` does **not** terminate execution early. You can inspect the translated code directly in the Platform if needed.
+
+For best practices and a full overview of tool capabilities, see [Script Tools in CogSol Docs](https://docs.cogsol.ai/docs/Tools/Script%20tools#talk-to-assistants).
+
 
 Retrieval tools connect agents to Content API retrievals. Define them in `agents/searches.py`:
 
 ```python
 from cogsol.tools import BaseRetrievalTool
-# from data.retrievals import ProductDocsRetrieval
-#
-# class ProductDocsSearch(BaseRetrievalTool):
-#     name = "product_docs_search"
-#     description = "Search the product documentation."
-#     retrieval = ProductDocsRetrieval()
-#     parameters = [
-#         {"name": "question", "description": "Search query", "type": "string", "required": True}
-#     ]
+from data.retrievals import ProductDocsRetrieval
+
+class ProductDocsSearch(BaseRetrievalTool):
+    name = "product_docs_search"
+    description = "Search the product documentation."
+    retrieval = ProductDocsRetrieval()
+    parameters = [
+        {"name": "question", "description": "Search query", "type": "string", "required": True}
+    ]
 ```
 
 #### Tool Parameters
@@ -523,31 +537,31 @@ These provide additional context to agents:
 
 ```python
 from cogsol.tools import BaseFAQ
-#
-# class PricingFAQ(BaseFAQ):
-#     question = "What are your pricing plans?"
-#     answer = "We offer three tiers: Basic ($10/mo), Pro ($25/mo), Enterprise (custom)."
+
+class PricingFAQ(BaseFAQ):
+    question = "What are your pricing plans?"
+    answer = "We offer three tiers: Basic ($10/mo), Pro ($25/mo), Enterprise (custom)."
 ```
 
 #### Fixed Responses (`fixed.py`)
 
 ```python
 from cogsol.tools import BaseFixedResponse
-#
-# class ClosingFixed(BaseFixedResponse):
-#     key = "goodbye"
-#     response = "Thank you for contacting us. Have a great day!"
+
+class ClosingFixed(BaseFixedResponse):
+    key = "goodbye"
+    response = "Thank you for contacting us. Have a great day!"
 ```
 
 #### Lessons (`lessons.py`)
 
 ```python
 from cogsol.tools import BaseLesson
-#
-# class ToneLesson(BaseLesson):
-#     name = "Communication Tone"
-#     content = "Always maintain a professional yet friendly tone."
-#     context_of_application = "general"
+
+class ToneLesson(BaseLesson):
+    name = "Communication Tone"
+    content = "Always maintain a professional yet friendly tone."
+    context_of_application = "general"
 ```
 
 ### Prompts
@@ -586,12 +600,12 @@ Topics are hierarchical containers for organizing documents. Define them in `dat
 ```python
 # data/documentation/__init__.py
 from cogsol.content import BaseTopic
-#
-# class DocumentationTopic(BaseTopic):
-#     name = "documentation"
-#
-#     class Meta:
-#         description = "Product documentation and guides."
+
+class DocumentationTopic(BaseTopic):
+    name = "documentation"
+
+    class Meta:
+        description = "Product documentation and guides."
 ```
 
 Topics can be nested by creating subdirectories:
@@ -613,19 +627,19 @@ Define custom metadata fields for documents within a topic:
 ```python
 # data/documentation/metadata.py
 from cogsol.content import BaseMetadataConfig, MetadataType
-#
-# class CategoryMetadata(BaseMetadataConfig):
-#     name = "category"
-#     type = MetadataType.STRING
-#     possible_values = ["Guide", "Tutorial", "Reference", "FAQ"]
-#     filtrable = True
-#     required = False
-#
-# class VersionMetadata(BaseMetadataConfig):
-#     name = "version"
-#     type = MetadataType.STRING
-#     required = True
-#     default_value = "1.0"
+
+class CategoryMetadata(BaseMetadataConfig):
+    name = "category"
+    type = MetadataType.STRING
+    possible_values = ["Guide", "Tutorial", "Reference", "FAQ"]
+    filtrable = True
+    required = False
+
+class VersionMetadata(BaseMetadataConfig):
+    name = "version"
+    type = MetadataType.STRING
+    required = True
+    default_value = "1.0"
 ```
 
 #### Ingestion Configurations
@@ -634,19 +648,19 @@ Define reusable ingestion settings in `data/ingestion.py`:
 
 ```python
 from cogsol.content import BaseIngestionConfig, PDFParsingMode, ChunkingMode
-#
-# class HighQualityConfig(BaseIngestionConfig):
-#     name = "high_quality"
-#     pdf_parsing_mode = PDFParsingMode.OCR
-#     chunking_mode = ChunkingMode.AGENTIC_SPLITTER
-#     max_size_block = 2000
-#     chunk_overlap = 100
-#
-# class FastConfig(BaseIngestionConfig):
-#     name = "fast"
-#     pdf_parsing_mode = PDFParsingMode.MANUAL
-#     chunking_mode = ChunkingMode.LANGCHAIN
-#     max_size_block = 1500
+
+class HighQualityConfig(BaseIngestionConfig):
+    name = "high_quality"
+    pdf_parsing_mode = PDFParsingMode.OCR
+    chunking_mode = ChunkingMode.AGENTIC_SPLITTER
+    max_size_block = 2000
+    chunk_overlap = 100
+
+class FastConfig(BaseIngestionConfig):
+    name = "fast"
+    pdf_parsing_mode = PDFParsingMode.MANUAL
+    chunking_mode = ChunkingMode.LANGCHAIN
+    max_size_block = 1500
 ```
 
 Use with the `ingest` command:
@@ -662,15 +676,15 @@ Define how document blocks are formatted when referenced:
 ```python
 # data/formatters.py
 from cogsol.content import BaseReferenceFormatter
-#
-# class DetailedFormatter(BaseReferenceFormatter):
-#     name = "detailed"
-#     description = "Include page and category."
-#     expression = "[{name}, p.{page_num}] ({metadata.category})"
-#
-# class SimpleFormatter(BaseReferenceFormatter):
-#     name = "simple"
-#     expression = "{name}"
+
+class DetailedFormatter(BaseReferenceFormatter):
+    name = "detailed"
+    description = "Include page and category."
+    expression = "[{name}, p.{page_num}] ({metadata.category})"
+
+class SimpleFormatter(BaseReferenceFormatter):
+    name = "simple"
+    expression = "{name}"
 ```
 
 #### Retrievals
@@ -680,23 +694,23 @@ Configure semantic search across topics:
 ```python
 # data/retrievals.py
 from cogsol.content import BaseRetrieval, ReorderingStrategy
-# from data.formatters import DetailedFormatter
-# from data.documentation.metadata import VersionMetadata
-#
-# class DocumentationRetrieval(BaseRetrieval):
-#     name = "documentation_search"
-#     topic = "documentation"
-#     num_refs = 10
-#     reordering = False
-#     strategy_reordering = ReorderingStrategy.NONE
-#     formatters = {"Text Document": DetailedFormatter}
-#     filters = []
-#
-# class FilteredRetrieval(BaseRetrieval):
-#     name = "v2_docs"
-#     topic = "documentation"
-#     num_refs = 5
-#     filters = [VersionMetadata]
+from data.formatters import DetailedFormatter
+from data.documentation.metadata import VersionMetadata
+
+class DocumentationRetrieval(BaseRetrieval):
+    name = "documentation_search"
+    topic = "documentation"
+    num_refs = 10
+    reordering = False
+    strategy_reordering = ReorderingStrategy.NONE
+    formatters = {"Text Document": DetailedFormatter}
+    filters = []
+
+class FilteredRetrieval(BaseRetrieval):
+    name = "v2_docs"
+    topic = "documentation"
+    num_refs = 5
+    filters = [VersionMetadata]
 ```
 
 ---
@@ -743,4 +757,4 @@ Copyright © Cognitive Solutions
 
 ---
 
-*This is an alpha release. APIs and features may change.*
+> **Alpha release:** APIs and features may change between versions.
