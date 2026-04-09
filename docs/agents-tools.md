@@ -14,9 +14,11 @@ This document provides comprehensive reference documentation for building agents
   - [BaseTool](#basetool)
   - [Tool Parameters](#tool-parameters)
   - [Tool Implementation](#tool-implementation)
+  - [Registering with an Agent](#registering-with-an-agent)
 - [Retrieval Tools](#retrieval-tools)
   - [BaseRetrievalTool](#baseretrievaltool)
   - [Connecting to Retrievals](#connecting-to-retrievals)
+  - [Registering Retrieval Tools](#registering-retrieval-tools)
 - [Related Content](#related-content)
   - [BaseFAQ](#basefaq)
   - [BaseFixedResponse](#basefixedresponse)
@@ -418,6 +420,33 @@ class WeatherTool(BaseTool):
         return {"temp": 20, "condition": "sunny"}
 ```
 
+### Registering with an Agent
+
+> **Important:** Defining a tool class in `agents/tools.py` does **not** make it available to an agent automatically. You must explicitly import the tool and add an instance of it to the agent's `tools` list in `agents/<name>/agent.py`.
+
+```python
+# agents/<name>/agent.py
+
+from cogsol.agents import BaseAgent, genconfigs
+from cogsol.prompts import Prompts
+from .tools import OrderLookupTool, ProductSearchTool
+
+
+class SupportAgent(BaseAgent):
+    system_prompt = Prompts.load("support.md")
+    generation_config = genconfigs.QA()
+
+    # Each tool must be explicitly listed here as an instance
+    tools = [
+        OrderLookupTool(),
+        ProductSearchTool(),
+    ]
+
+    # Other required attributes omitted for brevity
+```
+
+If this registration changes an existing agent definition, follow steps 8 and 9 in [Content Workflow](#content-workflow).
+
 ---
 
 ## Retrieval Tools
@@ -508,26 +537,16 @@ class ProductDocsSearch(BaseRetrievalTool):
     parameters = []
 ```
 
-#### Step 3: Register the Search in the Agent
+**Important:** Before using retrieval tools, you must:
+1. Create the topic in `data/`
+2. Create the retrieval in `data/retrievals.py`
+3. Run `python manage.py makemigrations data`
+4. Run `python manage.py migrate data`
+5. Register the retrieval tool in the agent's `tools` list as described in [Registering with an Agent](#registering-with-an-agent)
 
-Add the search tool to the agent `tools` list. Without this step, the search is not used by the agent.
+### Registering Retrieval Tools
 
-```python
-from cogsol.agents import BaseAgent
-from ..searches import ProductDocsSearch
-
-class SupportAgent(BaseAgent):
-    tools = [ProductDocsSearch()]
-```
-
-After you define the topic class, the retrieval class, and the search registration in the agent, run:
-
-```bash
-python manage.py makemigrations data
-python manage.py migrate data
-python manage.py makemigrations
-python manage.py migrate
-```
+> **Important:** Defining a retrieval tool class in `agents/searches.py` does **not** make it available to an agent automatically. Retrieval tools are registered with an agent exactly the same way as regular tools — see [Registering with an Agent](#registering-with-an-agent).
 
 ---
 
@@ -823,7 +842,13 @@ class KnowledgeBaseSearch(BaseRetrievalTool):
    python manage.py migrate data
    ```
 6. **Ingest Documents:** `python manage.py ingest knowledge_base /path/to/docs`
-7. **Connect to Agent:** Create retrieval tool in `agents/searches.py`
+7. **Create Retrieval Tool:** Create retrieval tool in `agents/searches.py`
+8. **Register with Agent:** Add the retrieval tool to the agent's `tools` list in `agents/<name>/agent.py` (see [Registering with an Agent](#registering-with-an-agent))
+9. **Migrate agents:**
+   ```
+   python manage.py makemigrations agents
+   python manage.py migrate agents
+   ```
 
 
 ## Prompts
