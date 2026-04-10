@@ -361,6 +361,12 @@ class EscalationLesson(BaseLesson):
 
 ## Adding Tools
 
+> **Note:** Adding a tool to your project is a two-step process:
+> 1. **Define** the tool class in `agents/tools.py` (or `agents/searches.py` for retrieval tools).
+> 2. **Register** it in the agent by importing it and adding an instance to the `tools` list in `agents/<name>/agent.py`.
+>
+> Simply defining the tool class is not enough — the agent will not use it until it is explicitly listed in `agent.py`.
+
 ### Step 1: Create a Custom Tool
 
 Edit `agents/tools.py` to add a useful tool. New projects include a commented example block; uncomment it or replace it with your own tool classes.

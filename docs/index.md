@@ -152,14 +152,25 @@ Both tool types are configured in the same `tools` list. Use script tools for ac
 Tools are Python capabilities that perform actions with custom logic, extending the agent's capabilities::
 
 ```python
-from cogsol.tools import BaseTool
-from datetime import datetime
+from cogsol.tools import BaseTool, tool_params
 
 class DateTool(BaseTool):
-    description = "Return the current date in YYYY-MM-DD format"
+    """Tool that returns the current date in a desired format."""
 
-    def run(self, chat=None, data=None, secrets=None, log=None):
-        return datetime.utcnow().strftime("%Y-%m-%d")
+    name = "get_date"
+    description = "Return the current date in desired format or YYYY-MM-DD"
+    show_tool_message = False
+
+    @tool_params(
+        format={
+            "description": "Format to retrieve the date",
+            "type": "string",
+            "required": False,
+        }
+    )
+    def run(self, format="", chat=None, data=None, secrets=None, log=None):
+        from datetime import datetime
+        return datetime.utcnow().strftime(format or "%Y-%m-%d")
 ```
 
 ### Retrieval Tools
