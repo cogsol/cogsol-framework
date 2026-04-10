@@ -84,32 +84,6 @@ cogsol-admin startproject my_assistant
 cd my_assistant
 ```
 
-### Optional: Scaffold from a Custom Cookbook
-
-If you want to scaffold from your own cookbook repository instead of the default one, use these commands.
-
-List available templates in a custom repository:
-
-```bash
-cogsol-admin startproject --list-templates --cookbook-repo owner/repo
-```
-
-Create a project from one of those templates:
-
-```bash
-cogsol-admin startproject my_assistant --from-template TEMPLATE_NAME --cookbook-repo owner/repo
-cd my_assistant
-```
-
-For private repositories, pass a GitHub token:
-
-```bash
-export GITHUB_TOKEN=your-github-token
-
-cogsol-admin startproject --list-templates --cookbook-repo owner/repo --github-token "$GITHUB_TOKEN"
-cogsol-admin startproject my_assistant --from-template TEMPLATE_NAME --cookbook-repo owner/repo --github-token "$GITHUB_TOKEN"
-```
-
 ### Step 2: Set Up Environment
 
 ```bash

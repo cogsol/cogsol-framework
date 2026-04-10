@@ -350,6 +350,19 @@ class Command(BaseCommand):
                 print(f"Error: {exc}")
                 return 1
 
+            # Add default .env.example if the cookbook entry does not provide one
+            env_example = target_dir / ".env.example"
+            if not env_example.exists():
+                env_example.write_text(
+                    "COGSOL_ENV=development\n"
+                    "#COGSOL_API_KEY=your-api-key\n"
+                    "# Optional: Azure AD B2C client credentials for JWT\n"
+                    "# If not provided, the Auth will be skipped\n"
+                    "# COGSOL_AUTH_CLIENT_ID=you-client-id\n"
+                    "# COGSOL_AUTH_SECRET=your-secret\n",
+                    encoding="utf-8",
+                )
+
             print(
                 f"Created CogSol project '{name}' from {repo}:{kind}/{entry_name} at {target_dir}"
             )
@@ -381,6 +394,7 @@ class Command(BaseCommand):
             "data/retrievals.py": DATA_RETRIEVALS_PY,
             "data/migrations/__init__.py": "",
             "README.md": README.format(project_name=name),
+            ".env.example": "COGSOL_ENV=development\n#COGSOL_API_KEY=your-api-key\n# Optional: Azure AD B2C client credentials for JWT\n# If not provided, the Auth will be skipped\n# COGSOL_AUTH_CLIENT_ID=you-client-id\n# COGSOL_AUTH_SECRET=your-secret\n",
         }
 
         for relative_path, content in files.items():
