@@ -18,7 +18,6 @@ from cogsol.core.constants import (
     get_cognitive_api_base_url,
     get_content_api_base_url,
 )
-from cogsol.core.env import load_dotenv
 from cogsol.core.loader import _extract_tool_params, collect_classes, collect_content_classes
 from cogsol.db import migrations
 from cogsol.management.base import BaseCommand
@@ -63,21 +62,12 @@ class Command(BaseCommand):
         app = options.get("app")
         apps = [str(app)] if app else ["data", "agents"]
 
-        load_dotenv(project_path / ".env")
-        api_base = get_cognitive_api_base_url()
-        api_key = self._env("COGSOL_API_KEY", required=False)
-        content_base = get_content_api_base_url()
-        if not api_key and not os.environ.get("COGSOL_AUTH_CLIENT_ID"):
-            print(
-                "Error: No API credentials found.\n"
-                "Set COGSOL_API_KEY in your .env file to authenticate with the CogSol API.\n"
-                "\n"
-                "To obtain your credentials:\n"
-                "  1. Visit https://onboarding.cogsol.ai\n"
-                "  2. Configure the service API key in the implantation portal\n"
-                "  3. Copy the key to COGSOL_API_KEY in your .env file"
-            )
+        if not self.ensure_credentials_configured(project_path):
             return 1
+
+        api_base = get_cognitive_api_base_url()
+        api_key = os.environ.get("COGSOL_API_KEY")
+        content_base = get_content_api_base_url()
 
         exit_code = 0
         for app_name in apps:
@@ -187,12 +177,6 @@ class Command(BaseCommand):
         return exit_code
 
     # ------------------------------------------------------------------ helpers
-    def _env(self, key: str, required: bool = True) -> str | None:
-        value = os.environ.get(key)
-        if required and not value:
-            return None
-        return value
-
     def _load_state(self, state_path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         if not state_path.exists():
             return migutils.empty_state(), self._empty_remote()

@@ -139,6 +139,9 @@ class Command(BaseCommand):
 
     def _list_remote(self, project_path: Path, flat_view: bool) -> int:
         """List topics from the API."""
+        if not self.ensure_credentials_configured(project_path):
+            return 1
+
         client = get_client(project_path)
 
         try:
@@ -172,6 +175,9 @@ class Command(BaseCommand):
 
     def _show_sync_status(self, project_path: Path) -> int:
         """Show sync status between local and remote topics."""
+        if not self.ensure_credentials_configured(project_path):
+            return 1
+
         data_dir = project_path / "data"
         client = get_client(project_path)
 

@@ -139,8 +139,9 @@ class CogSolClient:
         if not client_secret:
             raise CogSolAPIError(
                 "Missing authentication configuration: COGSOL_AUTH_SECRET is not set.\n"
-                "To obtain your credentials, visit https://onboarding.cogsol.ai\n"
-                "and configure the service API key in the implantation portal."
+                "Credentials are not configured. Run cogsol-admin credentials-setup first.\n"
+                "If you don't have tenant credentials yet, visit https://onboarding.cogsol.ai.\n"
+                "The onboarding flow also provides the credentials required to use CogSol Framework and the CLI."
             )
 
         authority = "https://pyxiscognitivesweden.b2clogin.com/pyxiscognitivesweden.onmicrosoft.com/B2C_1A_CS_signup_signin_Sweden_MigrationOIDC"

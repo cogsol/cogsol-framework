@@ -245,7 +245,7 @@ class Command(BaseCommand):
             "data/retrievals.py": DATA_RETRIEVALS_PY,
             "data/migrations/__init__.py": "",
             "README.md": README.format(project_name=name),
-            ".env.example": "COGSOL_ENV=development\n#COGSOL_API_KEY=your-api-key\n# Optional: Azure AD B2C client credentials for JWT\n# If not provided, the Auth will be skipped\n# COGSOL_AUTH_CLIENT_ID=you-client-id\n# COGSOL_AUTH_SECRET=your-secret\n",
+            ".env.example": "COGSOL_ENV=development\n# Configure global credentials once:\n#   cogsol-admin credentials-setup\n#\n# Optional project-level overrides (take precedence over global config):\n# COGSOL_API_KEY=your-tenant-api-key\n# COGSOL_AUTH_CLIENT_ID=your-client-id\n# COGSOL_AUTH_SECRET=your-client-secret\n",
         }
 
         for relative_path, content in files.items():

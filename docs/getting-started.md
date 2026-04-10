@@ -70,7 +70,7 @@ cogsol-admin
 
 You should see:
 ```
-A command is required. Available commands: chat, importagent, ingest, makemigrations, migrate, startagent, startproject, starttopic, topics
+A command is required. Available commands: addmcptools, chat, credentials-setup, importagent, ingest, logout, makemigrations, migrate, startagent, startproject, starttopic, topics
 ```
 
 ---
@@ -84,7 +84,18 @@ cogsol-admin startproject my_assistant
 cd my_assistant
 ```
 
-### Step 2: Set Up Environment
+### Step 2: Configure Credentials
+
+Run credential onboarding first:
+
+```bash
+cogsol-admin credentials-setup
+```
+
+If you do not have tenant credentials yet, visit **[https://onboarding.cogsol.ai](https://onboarding.cogsol.ai)**.
+The onboarding flow provides the credentials required to use CogSol Framework and the CLI.
+
+You can optionally define project-level overrides in `.env`.
 
 ```bash
 # Copy the example environment file
@@ -94,13 +105,11 @@ copy .env.example .env
 notepad .env
 ```
 
-Update `.env` with your CogSol API credentials:
+Update `.env` only when you need project-specific overrides:
 
 ```env
 COGSOL_ENV=development
 COGSOL_API_KEY=your-api-key-here
-# Optional: Azure AD B2C client credentials for JWT
-# If not provided, the Auth will be skipped
 COGSOL_AUTH_CLIENT_ID=your-client-id
 COGSOL_AUTH_SECRET=your-client-secret
 ```
@@ -686,7 +695,8 @@ class Migration(migrations.Migration):
 
 ### Step 1: Ensure API Credentials
 
-Verify your `.env` file has valid credentials:
+Ensure credentials are configured with `cogsol-admin credentials-setup`.
+If needed, verify your `.env` file has valid project-level override values:
 
 ```env
 COGSOL_API_KEY=sk-your-valid-api-key
@@ -847,6 +857,14 @@ Check for Python syntax errors:
 
 ```bash
 python -c "from agents.customersupport.agent import *"
+```
+
+### "Credentials are not configured. Run cogsol-admin credentials-setup first."
+
+Configure credentials with:
+
+```bash
+cogsol-admin credentials-setup
 ```
 
 ### "API error: 401 Unauthorized"
