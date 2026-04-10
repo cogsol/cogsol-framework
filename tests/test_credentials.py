@@ -30,9 +30,7 @@ def _clear_credential_env(monkeypatch) -> None:
 
 def _isolate_store(monkeypatch, tmp_path: Path) -> None:
     creds_path = tmp_path / ".config" / "cogsol" / "credentials.json"
-    monkeypatch.setattr(
-        "cogsol.core.credentials.get_credentials_path", lambda: creds_path
-    )
+    monkeypatch.setattr("cogsol.core.credentials.get_credentials_path", lambda: creds_path)
 
 
 def test_save_and_load_credentials_roundtrip(tmp_path):
