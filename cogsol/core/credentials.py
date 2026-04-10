@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -29,7 +30,7 @@ def get_credentials_path() -> Path:
     """Return the default user-level path for CogSol CLI credentials."""
     if os.name == "nt":
         base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
-    elif os.name == "posix" and os.environ.get("HOME") and "darwin" in os.sys.platform:
+    elif os.name == "posix" and os.environ.get("HOME") and "darwin" in sys.platform:
         base = Path.home() / "Library" / "Application Support"
     else:
         base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
