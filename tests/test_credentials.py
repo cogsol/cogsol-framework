@@ -7,12 +7,12 @@ from pathlib import Path
 
 import pytest
 
+from cogsol.core import credentials as credentials_mod
 from cogsol.core.credentials import (
     CREDENTIALS_NOT_CONFIGURED_MESSAGE,
     clear_stored_credentials,
     credentials_are_configured,
     ensure_credentials_configured,
-    get_credentials_path,
     load_runtime_credentials,
     load_stored_credentials,
     missing_required_env_vars,
@@ -29,7 +29,10 @@ def _clear_credential_env(monkeypatch) -> None:
 
 
 def _isolate_store(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+    creds_path = tmp_path / ".config" / "cogsol" / "credentials.json"
+    monkeypatch.setattr(
+        "cogsol.core.credentials.get_credentials_path", lambda: creds_path
+    )
 
 
 def test_save_and_load_credentials_roundtrip(tmp_path):
@@ -162,7 +165,7 @@ def test_credentials_setup_command_saves_credentials(tmp_path, monkeypatch):
     result = CredentialsSetupCommand().handle(project_path=None)
 
     assert result == 0
-    path = get_credentials_path()
+    path = credentials_mod.get_credentials_path()
     assert path.exists()
     assert load_stored_credentials(path) == {
         "client_id": "client-id",
@@ -187,7 +190,7 @@ def test_clear_credentials_command_removes_file_and_env(tmp_path, monkeypatch):
     result = ClearCredentialsCommand().handle(project_path=None)
 
     assert result == 0
-    assert get_credentials_path().exists() is False
+    assert credentials_mod.get_credentials_path().exists() is False
     assert os.environ.get("COGSOL_API_KEY") is None
     assert os.environ.get("COGSOL_AUTH_CLIENT_ID") is None
     assert os.environ.get("COGSOL_AUTH_SECRET") is None
