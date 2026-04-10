@@ -246,9 +246,6 @@ class Command(BaseCommand):
             print("Could not find project path. Run from within a CogSol project.")
             return 1
 
-        if not self.ensure_credentials_configured(project_path):
-            return 1
-
         topic_path = str(options.get("topic") or "")
         file_paths = options.get("files") or []
         doc_type = str(options.get("doc_type") or DocType.TEXT_DOCUMENT.value)
@@ -286,6 +283,9 @@ class Command(BaseCommand):
         if dry_run:
             print("\n[DRY RUN] No files were uploaded.")
             return 0
+
+        if not self.ensure_credentials_configured(project_path):
+            return 1
 
         # Get API client
         client = get_client(project_path)

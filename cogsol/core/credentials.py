@@ -133,8 +133,8 @@ def load_runtime_credentials(project_path: Path | None = None) -> None:
     stored = load_stored_credentials()
     for field, env_var in CREDENTIAL_FIELD_TO_ENV_VAR.items():
         value = stored.get(field)
-        if value:
-            os.environ.setdefault(env_var, value)
+        if value and not _clean(os.environ.get(env_var)):
+            os.environ[env_var] = value
 
 
 def missing_required_env_vars() -> list[str]:
