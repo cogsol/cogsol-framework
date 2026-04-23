@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `cogsol-admin startproject` can now scaffold projects from CogSol Cookbook templates and examples via `--from-template` / `--from-example`, with `--list-templates` / `--list-examples` to browse available entries. Supports custom cookbook repositories (`--cookbook-repo`) and private repos (`--github-token`).
+
 ---
 
 ## [0.2.1] - 2026-03-11

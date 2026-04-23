@@ -256,6 +256,59 @@ cogsol-admin startproject <project-name> [directory]
 - `project-name`: Name of the project
 - `directory`: (Optional) Target directory
 
+#### Scaffold from Cookbook
+
+You can bootstrap a project from a template or example published in the [CogSol Cookbook](https://github.com/cogsol/cogsol-cookbook) repository:
+
+```bash
+# List available templates and examples
+cogsol-admin startproject --list-templates
+cogsol-admin startproject --list-examples
+
+# Create a project from a cookbook template
+cogsol-admin startproject my-agent --from-template subagents
+
+# Create a project from a cookbook example
+cogsol-admin startproject my-demo --from-example hello-world
+```
+
+**Options:**
+
+| Flag | Description |
+|------|-------------|
+| `--from-template NAME` | Scaffold from `templates/<NAME>` in the cookbook |
+| `--from-example NAME` | Scaffold from `examples/<NAME>` in the cookbook |
+| `--list-templates` | List available cookbook templates |
+| `--list-examples` | List available cookbook examples |
+| `--force` | Overwrite existing files when the target directory is not empty |
+| `--ref REF` | Pin the cookbook to a specific branch, tag, or commit SHA (default: `main`) |
+| `--cookbook-repo OWNER/REPO` | Use a custom cookbook repository (default: `cogsol/cogsol-cookbook`) |
+| `--github-token TOKEN` | GitHub token for private cookbook repositories |
+
+The `--ref` flag is useful for reproducibility — for example, to ensure all team members scaffold from the same cookbook version:
+
+```bash
+cogsol-admin startproject my-agent --from-template subagents --ref v1.0.0
+```
+
+#### Custom Cookbook Repository
+
+By default, the CLI fetches from `cogsol/cogsol-cookbook`. To use your own repository, pass `--cookbook-repo OWNER/REPO` directly to `startproject`. If the repository is private, also pass `--github-token`.
+
+```bash
+# Public custom cookbook
+cogsol-admin startproject --list-templates --cookbook-repo my-org/my-cookbook
+cogsol-admin startproject my-agent --from-template subagents --cookbook-repo my-org/my-cookbook
+
+# Private custom cookbook
+cogsol-admin startproject my-agent \
+    --from-template internal-agent \
+    --cookbook-repo my-org/private-cookbook \
+    --github-token $GITHUB_TOKEN
+```
+
+The repository must follow the same directory convention: templates under `templates/` and examples under `examples/`. The CLI output always shows which repository is being used so you can verify the active configuration.
+
 ### `startagent`
 
 Create a new agent package with all required files.
