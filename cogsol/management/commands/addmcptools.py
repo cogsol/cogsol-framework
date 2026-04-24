@@ -362,13 +362,17 @@ class Command(BaseCommand):
             "name": server_name,
             "description": server_description,
             "url": server_url,
-            "headers": headers if auth_type == "headers" else {},
             "protocol_version": "2025-03-26",
             "client_name": "cognitive-mcp-client",
             "client_version": "1.0.0",
             "active": True,
             "auth_type": auth_type,
         }
+        if auth_type != "headers" or headers:
+            # For non-headers auth types always send headers: {}.
+            # For headers auth, only include the key when the user provided values so that
+            # a re-run without new input leaves existing Key Vault secrets untouched.
+            payload["headers"] = headers if auth_type == "headers" else {}
         if auth_type == "oauth2":
             payload["oauth_config"] = _oauth_config(oauth_client_id, oauth_scopes)
             if oauth_client_secret:
@@ -491,6 +495,12 @@ class Command(BaseCommand):
                 hdr_value = _ask(f"  Value for '{hdr_key}'")
                 if hdr_value:
                     headers[hdr_key] = hdr_value
+
+        if auth_type == "headers" and headers:
+            print(
+                "\n  ℹ  Header values are sent securely to the CogSol API"
+                " and stored in Azure Key Vault."
+            )
 
         elif auth_type == "oauth2":
             print("OAuth 2.1 Configuration")
