@@ -484,3 +484,73 @@ class TestAddMCPToolsOAuthAssisted:
             pass
 
         assert "authorize_url" not in calls
+
+
+class TestAddMCPToolsHeadersPayload:
+    """Tests that headers are included/omitted in the API payload correctly."""
+
+    def _make_client(self, existing_id=None):
+        captured = {}
+
+        class FakeCogSolClient:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def list_mcp_servers(self):
+                if existing_id is None:
+                    return []
+                return [
+                    {"id": existing_id, "name": "my server", "url": "https://mcp.example.com/mcp"}
+                ]
+
+            def upsert_mcp_server(self, *, remote_id, payload):
+                captured["remote_id"] = remote_id
+                captured["payload"] = payload
+                return existing_id or 10
+
+            def sync_mcp_server_tools(self, _server_id, _selected_tools):
+                return {}
+
+        return FakeCogSolClient, captured
+
+    def _call(self, monkeypatch, client_cls, headers, existing_id=None):
+        monkeypatch.setenv("COGSOL_API_BASE", "https://api.example.test")
+        monkeypatch.setattr(addmcptools, "CogSolClient", client_cls)
+        addmcptools.Command()._publish_to_cognitive(
+            server_name="my server",
+            server_description="",
+            server_url="https://mcp.example.com/mcp",
+            auth_type="headers",
+            headers=headers,
+            oauth_client_id="",
+            oauth_client_secret="",
+            oauth_scopes="",
+            selected_tools=[{"name": "do_thing"}],
+            oauth_timeout=5,
+        )
+
+    def test_rerun_without_new_headers_omits_headers_from_payload(self, monkeypatch):
+        client_cls, captured = self._make_client(existing_id=42)
+        self._call(monkeypatch, client_cls, headers={}, existing_id=42)
+
+        assert captured["remote_id"] == 42
+        assert "headers" not in captured["payload"], (
+            "Re-running addmcptools without entering new header values must not send "
+            "'headers' in the PATCH payload — omitting it preserves Key Vault secrets."
+        )
+
+    def test_first_create_with_headers_includes_them_in_payload(self, monkeypatch):
+        client_cls, captured = self._make_client(existing_id=None)
+        self._call(monkeypatch, client_cls, headers={"Authorization": "Bearer token123"})
+
+        assert captured["remote_id"] is None
+        assert captured["payload"]["headers"] == {"Authorization": "Bearer token123"}
+
+    def test_rerun_with_new_headers_includes_them_in_payload(self, monkeypatch):
+        client_cls, captured = self._make_client(existing_id=42)
+        self._call(
+            monkeypatch, client_cls, headers={"Authorization": "Bearer new-token"}, existing_id=42
+        )
+
+        assert captured["remote_id"] == 42
+        assert captured["payload"]["headers"] == {"Authorization": "Bearer new-token"}

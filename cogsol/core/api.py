@@ -426,9 +426,9 @@ class CogSolClient:
     def upsert_mcp_server(self, *, remote_id: int | None, payload: dict[str, Any]) -> int:
         """Create or update an MCP server."""
         if remote_id:
-            data = self.request("PUT", f"/mcp-servers/{remote_id}/", payload)
-        else:
-            data = self.request("POST", "/mcp-servers/", payload)
+            data = self.request("PATCH", f"/mcp-servers/{remote_id}/", payload)
+            return self._ensure_id(data, "MCPServer")
+        data = self.request("POST", "/mcp-servers/", payload)
         return self._ensure_id(data, "MCPServer")
 
     def delete_mcp_server(self, server_id: int) -> None:
