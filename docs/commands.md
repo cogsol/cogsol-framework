@@ -15,6 +15,7 @@ This document provides detailed reference documentation for all CogSol command-l
   - [ingest](#ingest)
   - [topics](#topics)
   - [importagent](#importagent)
+    - [addmcptools](#addmcptools)
   - [chat](#chat)
 - [Environment Configuration](#environment-configuration)
 - [Exit Codes](#exit-codes)
@@ -820,6 +821,103 @@ Imported assistant 42 as CustomerSupportAgent in agents/customer_support
 #### Generated Migration
 
 The command also creates a migration marking the import as applied, preventing duplicate creation on next `migrate`. When retrievals or topics are imported, a data migration is created and marked applied as well.
+
+---
+
+### addmcptools
+
+Interactively register an MCP server, select the desired available MCP tools and link them to your agent.
+
+#### Synopsis
+
+```bash
+python manage.py addmcptools
+```
+
+#### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--app` | `agents` | App folder where `mcp_servers.py` and `mcp_tools.py` are created/updated |
+| `--oauth-timeout` | `300` | Max seconds to wait for OAuth completion in browser flow | (Optional)
+
+
+#### What This Command Does
+
+1. **Collects server configuration**
+2. **Discovers tools from the MCP endpoint** (with OAuth-assisted discovery when needed)
+3. **Generates/updates local Python definitions**
+4. **Publishes mcp server + selected tools to your agent immediately**
+
+#### Authentication Modes
+
+| Auth Type | Use Case | Notes |
+|----------|----------|-------|
+| `none` | Public MCP server | No credentials required |
+| `headers` | API key or static headers | Header values are saved as env vars in `.env` |
+| `oauth2` | OAuth 2.1 / MCP server | `client_id` and scopes are optional; `client_secret` is never written to source or `.env` |
+
+#### Generated or Updated Files
+
+| File | Purpose |
+|------|---------|
+| `<app>/mcp_servers.py` | MCP server classes (`BaseMCPServer`) |
+| `<app>/mcp_tools.py` | MCP tool classes (`BaseMCPTool`) linked to selected server |
+| `.env` | New non-secret MCP variables (headers, optional OAuth client metadata) |
+
+#### Step-by-Step: Add a New MCP Server
+
+1. Run the command:
+
+```bash
+python manage.py addmcptools
+```
+
+2. Enter server metadata when prompted:
+    - Server name
+    - Description (optional)
+    - MCP URL
+    - Auth mode (`none`, `headers`, or `oauth2`)
+
+3. Provide credentials based on auth mode:
+    - `headers`: add one or more headers and values
+    - `oauth2`: optionally provide client ID/scopes, optionally client secret (write-only to API)
+
+4. Select tools to import (`all` or comma-separated indices).
+
+5. Review created/updated files:
+    - `<app>/mcp_servers.py`
+    - `<app>/mcp_tools.py`
+    - `.env`
+
+6. Generate and apply migrations:
+
+```bash
+python manage.py makemigrations
+python manage.py migrate
+```
+
+7. If OAuth re-authorization is requested, complete the browser flow and re-run
+    `addmcptools` if needed.
+
+#### Example Usage and Outputs
+
+```bash
+# Default app (agents)
+python manage.py addmcptools
+.
+.
+.
+follow the options provided from the cli and cotinue the flow
+
+#### Output Highlights
+
+| Message | Meaning |
+|---------|---------|
+| "Found N tool(s)" | Tool discovery succeeded |
+| "Created/Updated MCP server" | Server was published to remote catalog |
+| "Synced N MCP tool(s)" | Tool selection was published |
+| "Run 'python manage.py makemigrations' followed by 'python manage.py migrate'" | Next step to persist local definitions in your project lifecycle |
 
 ---
 
