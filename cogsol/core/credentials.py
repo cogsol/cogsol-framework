@@ -6,6 +6,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from cogsol.core.constants import get_cogsol_env
 from cogsol.core.env import load_dotenv
 
 CREDENTIALS_NOT_CONFIGURED_MESSAGE = (
@@ -13,8 +14,8 @@ CREDENTIALS_NOT_CONFIGURED_MESSAGE = (
 )
 
 ONBOARDING_MESSAGE = (
-    "If you don't have tenant credentials yet, go to https://onboarding.cogsol.ai to obtain them.\n"
-    "The onboarding flow also provides the credentials required to use CogSol Framework and the CLI."
+    "Need tenant credentials? Visit https://onboarding.cogsol.ai to generate them.\n"
+    "The onboarding flow provides all credentials required for the CogSol Framework and CLI."
 )
 
 CREDENTIAL_FIELD_TO_ENV_VAR = {
@@ -24,6 +25,7 @@ CREDENTIAL_FIELD_TO_ENV_VAR = {
 }
 
 REQUIRED_ENV_VARS = tuple(CREDENTIAL_FIELD_TO_ENV_VAR.values())
+REQUIRED_ENV_VARS_LOCAL = tuple(CREDENTIAL_FIELD_TO_ENV_VAR["tenant_api_key"])
 
 
 def get_credentials_path() -> Path:
@@ -130,6 +132,12 @@ def load_runtime_credentials(project_path: Path | None = None) -> None:
     if project_path is not None:
         load_dotenv(project_path / ".env")
 
+    # For local development, if api key is already set in env, don't use stored creds to avoid using authservice
+    if get_cogsol_env() == "local" and _clean(
+        os.environ.get(CREDENTIAL_FIELD_TO_ENV_VAR["tenant_api_key"])
+    ):
+        return
+
     stored = load_stored_credentials()
     for field, env_var in CREDENTIAL_FIELD_TO_ENV_VAR.items():
         value = stored.get(field)
@@ -138,6 +146,8 @@ def load_runtime_credentials(project_path: Path | None = None) -> None:
 
 
 def missing_required_env_vars() -> list[str]:
+    if get_cogsol_env() == "local":
+        return [name for name in REQUIRED_ENV_VARS_LOCAL if not _clean(os.environ.get(name))]
     return [name for name in REQUIRED_ENV_VARS if not _clean(os.environ.get(name))]
 
 
