@@ -131,9 +131,13 @@ agents/salesagent/
 
 ### 3. Configure Credentials
 
-CogSol requires API credentials. Visit **[https://onboarding.cogsol.ai](https://onboarding.cogsol.ai)** to obtain them and configure your service API key in the portal before running any commands.
+CogSol requires tenant credentials before project commands can sync with the APIs. Configure them once with:
 
-If you do not have tenant credentials yet, visit [https://onboarding.cogsol.ai](https://onboarding.cogsol.ai).
+```bash
+cogsol-admin credentials-setup
+```
+
+If you do not have tenant credentials yet, visit [https://onboarding.cogsol.ai](https://onboarding.cogsol.ai). The onboarding flow provides the values required by `credentials-setup`.
 
 See [Configuration](#configuration) for details on credential resolution and `.env` overrides.
 
@@ -735,13 +739,14 @@ cogsol-admin logout
 
 ### Environment Variables (`.env`)
 
-Projects can optionally use a `.env` file for project-level credential overrides and additional settings. These take precedence over user-level CLI credentials:
+Projects can optionally use a `.env` file for project-level credential overrides and additional settings. These take precedence over user-level CLI credentials. Most projects only need `COGSOL_ENV` here:
 
 ```env
 COGSOL_ENV=development
-COGSOL_API_KEY=your-api-key
-COGSOL_AUTH_CLIENT_ID=your-client-id
-COGSOL_AUTH_SECRET=your-client-secret
+# Optional project-level credential overrides:
+# COGSOL_API_KEY=your-api-key
+# COGSOL_AUTH_CLIENT_ID=your-client-id
+# COGSOL_AUTH_SECRET=your-client-secret
 ```
 
 ### LLM Provider API Key
