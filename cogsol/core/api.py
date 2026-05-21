@@ -18,6 +18,7 @@ from cogsol.core.constants import (
     get_cognitive_api_base_url,
     get_content_api_base_url,
 )
+from cogsol.core.credentials import ONBOARDING_MESSAGE
 
 
 class CogSolAPIError(RuntimeError):
@@ -140,8 +141,7 @@ class CogSolClient:
             raise CogSolAPIError(
                 "Missing authentication configuration: COGSOL_AUTH_SECRET is not set.\n"
                 "Credentials are not configured. Run cogsol-admin credentials-setup first.\n"
-                "If you don't have tenant credentials yet, visit https://onboarding.cogsol.ai.\n"
-                "The onboarding flow also provides the credentials required to use CogSol Framework and the CLI."
+                + ONBOARDING_MESSAGE
             )
 
         authority = "https://pyxiscognitivesweden.b2clogin.com/pyxiscognitivesweden.onmicrosoft.com/B2C_1A_CS_signup_signin_Sweden_MigrationOIDC"
