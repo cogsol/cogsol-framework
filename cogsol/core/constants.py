@@ -10,18 +10,10 @@ COGSOL_API_BASE_VAR: Final = "COGSOL_API_BASE"
 COGSOL_CONTENT_API_BASE_VAR: Final = "COGSOL_CONTENT_API_BASE"
 COGSOL_AUTH_SCOPE_ID_VAR: Final = "COGSOL_AUTH_SCOPE_ID"
 
-if os.environ.get("COGSOL_AUTH_CLIENT_ID"):
-    _implantation_cognitive_api_url = "https://apis-imp.cogsol.ai/cognitive"
-    _implantation_content_api_url = "https://apis-imp.cogsol.ai/content"
-    _production_cognitive_api_url = "https://apis.cogsol.ai/cognitive"
-    _production_content_api_url = "https://apis.cogsol.ai/content"
-else:
-    _implantation_cognitive_api_url = (
-        "https://cognitive-implantation.cognitive.pyxis.tech/cognitive"
-    )
-    _implantation_content_api_url = "https://content-implantation.cognitive.pyxis.tech/content"
-    _production_cognitive_api_url = "https://cognitive-production.cognitive.pyxis.tech/cognitive"
-    _production_content_api_url = "https://content-production.cognitive.pyxis.tech/content"
+_implantation_cognitive_api_url = "https://apis-imp.cogsol.ai/cognitive"
+_implantation_content_api_url = "https://apis-imp.cogsol.ai/content"
+_production_cognitive_api_url = "https://apis.cogsol.ai/cognitive"
+_production_content_api_url = "https://apis.cogsol.ai/content"
 
 IMPLANTATION_COGNITIVE_API_URL: Final = _implantation_cognitive_api_url
 IMPLANTATION_CONTENT_API_URL: Final = _implantation_content_api_url
