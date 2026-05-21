@@ -129,20 +129,17 @@ agents/salesagent/
     └── salesagent.md   # System prompt
 ```
 
-### 3. Configure Environment
+### 3. Configure Credentials
 
-CogSol requires API credentials. Visit **[https://onboarding.cogsol.ai](https://onboarding.cogsol.ai)** to obtain them and configure your service API key in the portal before running any commands.
+CogSol requires tenant credentials before project commands can sync with the APIs. Configure them once with:
 
-Copy `.env.example` to `.env` and fill in the credentials obtained from the portal:
-
-```env
-COGSOL_ENV=development
-COGSOL_API_KEY=your-api-key  # Obtain from https://onboarding.cogsol.ai
-# Optional: Azure AD B2C client credentials for JWT
-# If not provided, the Auth will be skipped
-COGSOL_AUTH_CLIENT_ID=your-client-id
-COGSOL_AUTH_SECRET=your-client-secret
+```bash
+cogsol-admin credentials-setup
 ```
+
+If you do not have tenant credentials yet, visit [https://onboarding.cogsol.ai](https://onboarding.cogsol.ai). The onboarding flow provides the values required by `credentials-setup`.
+
+See [Configuration](#configuration) for details on credential resolution and `.env` overrides.
 
 ### 4. Create Migrations
 
@@ -156,16 +153,9 @@ python manage.py makemigrations
 python manage.py migrate
 ```
 
-### 6. Configure Your LLM Provider API Key
+### 6. Configure Your LLM Provider
 
-To run your agents, configure the API key for your preferred LLM provider. The following providers are supported:
-
-- OpenAI
-- Google Gemini
-- Anthropic
-
-Add your API key at the [CogSol Platform](https://platform.cogsol.ai/configuration/services).
-
+Add the API key of your preferred LLM provider (OpenAI, Google Gemini, or Anthropic) at [CogSol Platform](https://platform.cogsol.ai/configuration/services).
 
 ### 7. Chat with Your Agent
 
@@ -770,16 +760,51 @@ class FilteredRetrieval(BaseRetrieval):
 
 ## Configuration
 
-### Environment Variables
+### Credentials
 
-Credentials are obtained from the CogSol onboarding portal at **[https://onboarding.cogsol.ai](https://onboarding.cogsol.ai)**. Configure your service API key there before running migrations or using the CLI.
+Set up credentials with `cogsol-admin credentials-setup`.
+The command stores `client_id`, `client_secret`, and `tenant_api_key` in a user-level config file with restricted permissions.
+
+If you do not have tenant credentials yet, visit [https://onboarding.cogsol.ai](https://onboarding.cogsol.ai).
+
+Credential resolution order:
+
+1. Process environment variables
+2. Project `.env` file
+3. User-level CLI credentials file
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `COGSOL_API_KEY` | Yes | Service API key — obtain from the portal at https://onboarding.cogsol.ai |
+| `COGSOL_API_KEY` | Yes | Tenant API key |
+| `COGSOL_AUTH_CLIENT_ID` | Yes | OAuth client ID |
+| `COGSOL_AUTH_SECRET` | Yes | OAuth client secret |
 | `COGSOL_ENV` | No | Environment name (e.g., `local`, `development`, `production`) |
-| `COGSOL_AUTH_CLIENT_ID` | No | Client Id provided for administrators |
-| `COGSOL_AUTH_SECRET` | No | Auth secret provided for administrators |
+
+If credentials are missing, authenticated commands fail fast with:
+
+`Credentials are not configured. Run cogsol-admin credentials-setup first.`
+
+To remove stored credentials:
+
+```bash
+cogsol-admin logout
+```
+
+### Environment Variables (`.env`)
+
+Projects can optionally use a `.env` file for project-level credential overrides and additional settings. These take precedence over user-level CLI credentials. Most projects only need `COGSOL_ENV` here:
+
+```env
+COGSOL_ENV=development
+# Optional project-level credential overrides:
+# COGSOL_API_KEY=your-api-key
+# COGSOL_AUTH_CLIENT_ID=your-client-id
+# COGSOL_AUTH_SECRET=your-client-secret
+```
+
+### LLM Provider API Key
+
+To run your agents you need to configure the API key of your preferred LLM provider (OpenAI, Google Gemini, or Anthropic) at [CogSol Platform](https://platform.cogsol.ai/configuration/services).
 
 ### Project Settings (`settings.py`)
 

@@ -32,7 +32,6 @@ from pathlib import Path
 from typing import Any
 
 from cogsol.core.api import CogSolAPIError, CogSolClient
-from cogsol.core.env import load_dotenv
 from cogsol.core.mcp import MCPClient
 from cogsol.management.base import BaseCommand
 
@@ -437,7 +436,8 @@ class Command(BaseCommand):
         app = str(options.get("app") or "agents")
         oauth_timeout = int(options.get("oauth_timeout") or OAUTH_POLL_SECONDS_DEFAULT)
 
-        load_dotenv(project_path / ".env")
+        if not self.ensure_credentials_configured(project_path):
+            return 1
 
         # ── Step 1: Server details ───────────────────────────────────
         print("\n=== Step 1: MCP Server Configuration ===\n")

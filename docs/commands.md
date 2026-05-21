@@ -7,6 +7,8 @@ This document provides detailed reference documentation for all CogSol command-l
 - [Overview](#overview)
 - [Global Commands](#global-commands)
   - [startproject](#startproject)
+    - [credentials-setup](#credentials-setup)
+    - [logout](#logout)
 - [Project Commands](#project-commands)
   - [startagent](#startagent)
   - [starttopic](#starttopic)
@@ -147,7 +149,7 @@ Contains commented examples of retrieval configurations.
 
 ##### `.env.example`
 
-Stores configuration variables for CogSol credentials.
+Documents optional project-level environment overrides. Tenant credentials are normally configured once with `cogsol-admin credentials-setup`.
 
 #### Example Usage
 
@@ -192,6 +194,48 @@ cogsol-admin startproject my-agent --from-template internal-agent \
 | Error | Cause | Solution |
 |-------|-------|----------|
 | "Destination is not empty" | Target directory contains files | Choose different directory or empty it |
+
+---
+
+### credentials-setup
+
+Interactively configure tenant credentials for `cogsol-admin` and project commands.
+
+#### Synopsis
+
+```bash
+cogsol-admin credentials-setup
+```
+
+#### Prompted Fields
+
+- `client_id`
+- `client_secret`
+- `tenant_api_key`
+
+If you do not have credentials yet, the command points users to:
+
+- https://onboarding.cogsol.ai
+
+The onboarding flow provides credentials required to use CogSol Framework and the CLI.
+
+Credentials are stored in a user-level CLI config file with restricted permissions.
+
+### logout
+
+Delete locally stored CLI credentials.
+
+#### Synopsis
+
+```bash
+cogsol-admin logout
+```
+
+#### Behavior
+
+- Removes the user-level credentials file.
+- Clears credential variables from the current process environment.
+- Safe to run when no credentials are stored.
 
 ---
 
@@ -502,13 +546,15 @@ python manage.py migrate [app]
 |----------|----------|---------|-------------|
 | `app` | No | - | Application to migrate (`agents` or `data`, omitted runs both) |
 
-#### Required Environment Variables
+#### Required Credentials
 
-```env
-COGSOL_API_KEY=your-api-key         
-COGSOL_AUTH_CLIENT_ID=your-client-id
-COGSOL_AUTH_SECRET=your-client-secret
+Configure credentials once with:
+
+```bash
+cogsol-admin credentials-setup
 ```
+
+Project `.env` values can override the user-level credentials when a project needs a different tenant.
 
 #### How It Works
 
@@ -758,14 +804,15 @@ python manage.py importagent <assistant_id> [app]
 | `assistant_id` | Yes | - | Remote assistant ID (integer) |
 | `app` | No | `agents` | Target application |
 
-#### Required Environment Variables
+#### Required Credentials
 
-```env
-COGSOL_API_BASE=https://apis-imp.cogsol.ai/cognitive  # Required
-COGSOL_API_KEY=your-api-key              # Optional
+Configure credentials once with:
 
-COGSOL_CONTENT_API_BASE=https://apis-imp.cogsol.ai/content  # Required if importing retrievals
+```bash
+cogsol-admin credentials-setup
 ```
+
+Project `.env` values can override the user-level credentials when a project needs a different tenant.
 
 #### What Gets Imported
 
@@ -938,12 +985,15 @@ python manage.py chat --agent <identifier> [app]
 | `--agent` | Yes | - | Agent name or remote ID |
 | `app` | No | `agents` | Application name |
 
-#### Required Environment Variables
+#### Required Credentials
 
-```env
-COGSOL_API_BASE=https://apis-imp.cogsol.ai/cognitive  # Required
-COGSOL_API_KEY=your-api-key              # Optional
+Configure credentials once with:
+
+```bash
+cogsol-admin credentials-setup
 ```
+
+Project `.env` values can override the user-level credentials when a project needs a different tenant.
 
 #### Agent Resolution
 
@@ -1009,6 +1059,42 @@ python manage.py chat --agent Support assistants
 
 ---
 
+## Environment Configuration
+
+Authenticated commands require all three credentials. The recommended setup is:
+
+```bash
+cogsol-admin credentials-setup
+```
+
+Credential resolution order:
+
+1. Process environment variables
+2. Project `.env` file
+3. User-level CLI credentials file
+
+Projects can optionally define credentials in a `.env` file for project-level overrides:
+
+```env
+COGSOL_ENV=development
+# Optional project-level credential overrides:
+# COGSOL_API_KEY=your-api-key
+# COGSOL_AUTH_CLIENT_ID=your-client-id
+# COGSOL_AUTH_SECRET=your-client-secret
+```
+
+When credentials are missing, authenticated commands fail fast with:
+
+`Credentials are not configured. Run cogsol-admin credentials-setup first.`
+
+To clear stored credentials:
+
+```bash
+cogsol-admin logout
+```
+
+---
+
 ## Exit Codes
 
 All commands return standard exit codes:
@@ -1043,12 +1129,12 @@ cd myproject
 python manage.py makemigrations
 ```
 
-#### "COGSOL_API_BASE is required"
+#### "Credentials are not configured. Run cogsol-admin credentials-setup first."
 
-Create or update your `.env` file:
+Configure credentials with:
 
 ```bash
-echo "COGSOL_API_BASE=https://apis-imp.cogsol.ai/cognitive" >> .env
+cogsol-admin credentials-setup
 ```
 
 #### "Could not resolve agent"
@@ -1067,16 +1153,15 @@ python -c "from agents.myagent.agent import *"
 
 #### "API error: 401 Unauthorized"
 
-Add or update your API Key:
+Verify that the configured credentials are valid and belong to the tenant you are targeting:
 
-```env
-COGSOL_API_KEY=your-valid-api-key
+```bash
+cogsol-admin credentials-setup
 ```
 
-If it doesn't work and you have the token auth configured, check if your credentials are valid.
 ### Debug Tips
 
 1. **Check state files**: Look at `agents/migrations/.state.json` for current mappings
 2. **Review migrations**: Open `agents/migrations/*.py` to see generated operations
 3. **Test imports**: Verify your code imports correctly before making migrations
-4. **API connectivity**: Test with `curl $COGSOL_API_BASE/health`
+4. **Credential source**: Check process environment variables, project `.env`, and then the user-level credential file in that order

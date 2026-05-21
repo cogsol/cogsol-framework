@@ -10,7 +10,6 @@ from cogsol.core.constants import (
     get_cognitive_api_base_url,
     get_content_api_base_url,
 )
-from cogsol.core.env import load_dotenv
 from cogsol.core.loader import (
     _extract_tool_params,
     collect_content_definitions,
@@ -286,7 +285,8 @@ class Command(BaseCommand):
 
     def handle(self, project_path: Path | None, **options: Any) -> int:
         assert project_path is not None, "project_path is required"
-        load_dotenv(project_path / ".env")
+        if not self.ensure_credentials_configured(project_path):
+            return 1
 
         assistant_id = cast(int, options.get("assistant_id"))
         app = str(options.get("app") or "agents")
@@ -296,17 +296,6 @@ class Command(BaseCommand):
         api_base = get_cognitive_api_base_url()
         api_key = os.environ.get("COGSOL_API_KEY")
         content_base = get_content_api_base_url() or api_base
-        if not api_key and not os.environ.get("COGSOL_AUTH_CLIENT_ID"):
-            print(
-                "Error: No API credentials found.\n"
-                "Set COGSOL_API_KEY in your .env file to authenticate with the CogSol API.\n"
-                "\n"
-                "To obtain your credentials:\n"
-                "  1. Visit https://onboarding.cogsol.ai\n"
-                "  2. Configure the service API key in the implantation portal\n"
-                "  3. Copy the key to COGSOL_API_KEY in your .env file"
-            )
-            return 1
 
         client = CogSolClient(api_base, api_key=api_key, content_base_url=content_base)
         try:

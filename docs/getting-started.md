@@ -70,7 +70,7 @@ cogsol-admin
 
 You should see:
 ```
-A command is required. Available commands: chat, importagent, ingest, makemigrations, migrate, startagent, startproject, starttopic, topics
+A command is required. Available commands: addmcptools, chat, credentials-setup, importagent, ingest, logout, makemigrations, migrate, startagent, startproject, starttopic, topics
 ```
 
 ---
@@ -84,25 +84,32 @@ cogsol-admin startproject my_assistant
 cd my_assistant
 ```
 
-### Step 2: Set Up Environment
+### Step 2: Configure Credentials
+
+Run credential onboarding first:
 
 ```bash
-# Copy the example environment file
-copy .env.example .env
+cogsol-admin credentials-setup
+```
 
-# Edit .env with your settings (use your preferred editor)
+If you do not have tenant credentials yet, visit **[https://onboarding.cogsol.ai](https://onboarding.cogsol.ai)**.
+The onboarding flow provides the credentials required to use CogSol Framework and the CLI.
+
+Most projects do not need a `.env` file for credentials. If you need project-specific overrides, copy the example file and edit only the values that should differ from your user-level credentials:
+
+```bash
+copy .env.example .env
 notepad .env
 ```
 
-Update `.env` with your CogSol API credentials:
+Update `.env` only when you need project-specific overrides:
 
 ```env
 COGSOL_ENV=development
-COGSOL_API_KEY=your-api-key-here
-# Optional: Azure AD B2C client credentials for JWT
-# If not provided, the Auth will be skipped
-COGSOL_AUTH_CLIENT_ID=your-client-id
-COGSOL_AUTH_SECRET=your-client-secret
+# Optional project-level credential overrides:
+# COGSOL_API_KEY=your-api-key-here
+# COGSOL_AUTH_CLIENT_ID=your-client-id
+# COGSOL_AUTH_SECRET=your-client-secret
 ```
 
 ### Step 3: Verify Project Setup
@@ -123,7 +130,7 @@ Your new project has this structure:
 my_assistant/
 ├── manage.py           # CLI entry point (like Django's manage.py)
 ├── settings.py         # Project configuration
-├── .env               # Environment variables (don't commit!)
+├── .env               # Optional project overrides (don't commit!)
 ├── .env.example       # Environment template
 ├── README.md          # Project documentation
 ├── agents/            # Agents application (Cognitive API)
@@ -147,7 +154,7 @@ my_assistant/
 |------|---------|
 | `manage.py` | Run commands for this project |
 | `settings.py` | Project name and base configuration |
-| `.env` | API credentials (keep secret!) |
+| `.env` | Optional project-level environment overrides |
 | `agents/tools.py` | Define tools used by your agents |
 | `agents/searches.py` | Define retrieval tools for semantic search |
 | `agents/migrations/` | Track changes to your agents |
@@ -692,12 +699,14 @@ class Migration(migrations.Migration):
 
 ### Step 1: Ensure API Credentials
 
-Verify your `.env` file has valid credentials:
+Ensure credentials are configured with `cogsol-admin credentials-setup`.
+If needed, verify your `.env` file has valid project-level override values:
 
 ```env
-COGSOL_API_KEY=sk-your-valid-api-key
-COGSOL_AUTH_CLIENT_ID=your-client-id
-COGSOL_AUTH_SECRET=your-client-secret
+# Optional project-level credential overrides:
+# COGSOL_API_KEY=sk-your-valid-api-key
+# COGSOL_AUTH_CLIENT_ID=your-client-id
+# COGSOL_AUTH_SECRET=your-client-secret
 ```
 
 ### Step 2: Apply Migrations
@@ -839,10 +848,6 @@ echo ".env" >> .gitignore
 
 ## Troubleshooting
 
-### "COGSOL_API_BASE is required"
-
-Create or update your `.env` file with your API credentials.
-
 ### "Could not resolve agent"
 
 Run `migrate` first to sync your agents with the API.
@@ -855,10 +860,17 @@ Check for Python syntax errors:
 python -c "from agents.customersupport.agent import *"
 ```
 
+### "Credentials are not configured. Run cogsol-admin credentials-setup first."
+
+Configure credentials with:
+
+```bash
+cogsol-admin credentials-setup
+```
+
 ### "API error: 401 Unauthorized"
 
-Verify if `COGSOL_API_KEY`, `COGSOL_AUTH_CLIENT_ID`
-`COGSOL_AUTH_SECRET` are correct and not expired.
+Verify that your configured credentials are correct, not expired, and belong to the tenant you are targeting. Project `.env` values override user-level credentials.
 
 ---
 

@@ -284,6 +284,9 @@ class Command(BaseCommand):
             print("\n[DRY RUN] No files were uploaded.")
             return 0
 
+        if not self.ensure_credentials_configured(project_path):
+            return 1
+
         # Get API client
         client = get_client(project_path)
 

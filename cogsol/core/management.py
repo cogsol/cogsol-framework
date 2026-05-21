@@ -13,6 +13,8 @@ from cogsol.management.base import BaseCommand
 
 def _command_registry() -> dict[str, str]:
     return {
+        "credentials-setup": "cogsol.management.commands.credentialssetup",
+        "logout": "cogsol.management.commands.clearcredentials",
         "startproject": "cogsol.management.commands.startproject",
         "startagent": "cogsol.management.commands.startagent",
         "starttopic": "cogsol.management.commands.starttopic",

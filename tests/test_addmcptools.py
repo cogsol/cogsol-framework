@@ -57,6 +57,9 @@ class TestAddMCPToolsCodegen:
         monkeypatch.setattr(addmcptools, "CogSolClient", FakeCogSolClient)
         monkeypatch.setattr(addmcptools, "_ask", fake_ask)
         monkeypatch.setenv("COGSOL_API_BASE", "https://api.example.test")
+        monkeypatch.setenv("COGSOL_API_KEY", "test-api-key")
+        monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+        monkeypatch.setenv("COGSOL_AUTH_SECRET", "test-client-secret")
 
         project_path = tmp_path
         (project_path / ".env").write_text("", encoding="utf-8")
@@ -144,6 +147,9 @@ class TestAddMCPToolsOAuthAssisted:
             return answers.get(prompt, default)
 
         monkeypatch.setenv("COGSOL_API_BASE", "https://api.example.test")
+        monkeypatch.setenv("COGSOL_API_KEY", "test-api-key")
+        monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+        monkeypatch.setenv("COGSOL_AUTH_SECRET", "test-client-secret")
         monkeypatch.setattr(addmcptools, "MCPClient", FakeMCPClient)
         monkeypatch.setattr(addmcptools, "CogSolClient", FakeCogSolClient)
         monkeypatch.setattr(addmcptools, "_ask", fake_ask)
@@ -234,6 +240,9 @@ class TestAddMCPToolsOAuthAssisted:
             return answers.get(prompt, default)
 
         monkeypatch.setenv("COGSOL_API_BASE", "https://api.example.test")
+        monkeypatch.setenv("COGSOL_API_KEY", "test-api-key")
+        monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+        monkeypatch.setenv("COGSOL_AUTH_SECRET", "test-client-secret")
         monkeypatch.setattr(addmcptools, "MCPClient", FakeMCPClient)
         monkeypatch.setattr(addmcptools, "CogSolClient", FakeCogSolClient)
         monkeypatch.setattr(addmcptools, "_ask", fake_ask)
