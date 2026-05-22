@@ -792,7 +792,7 @@ cogsol-admin logout
 
 ### Environment Variables (`.env`)
 
-Projects can optionally use a `.env` file for project-level credential overrides and additional settings. These take precedence over user-level CLI credentials. Most projects only need `COGSOL_ENV` here:
+Projects must use a `.env` file for project-level credential overrides and additional settings. These take precedence over user-level CLI credentials. Most projects only need `COGSOL_ENV` here:
 
 ```env
 COGSOL_ENV=development
