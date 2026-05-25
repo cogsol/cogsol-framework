@@ -796,10 +796,9 @@ Projects can optionally use a `.env` file for project-level credential overrides
 
 ```env
 COGSOL_ENV=development
-# Optional project-level credential overrides:
-# COGSOL_API_KEY=your-api-key
-# COGSOL_AUTH_CLIENT_ID=your-client-id
-# COGSOL_AUTH_SECRET=your-client-secret
+COGSOL_API_KEY=your-api-key
+COGSOL_AUTH_CLIENT_ID=your-client-id
+COGSOL_AUTH_SECRET=your-client-secret
 ```
 
 ### LLM Provider API Key
