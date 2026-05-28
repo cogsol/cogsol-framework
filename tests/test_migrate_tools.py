@@ -408,6 +408,72 @@ class TestMigrateMCPAssociationOnly:
         assert remote["mcp_tools"]["ping"] == 901
 
 
+class TestContentMigrationFilters:
+    def test_resolves_retrieval_filters_to_metadata_config_ids(self, monkeypatch) -> None:
+        calls: list[tuple[str, dict]] = []
+
+        class FakeClient:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def upsert_node(self, *, remote_id, payload):
+                calls.append(("topic", payload))
+                return remote_id or 10
+
+            def create_metadata_config(self, *, node_id, payload):
+                calls.append(("metadata_config", payload))
+                return 20
+
+            def update_metadata_config(self, _config_id, payload):
+                calls.append(("metadata_config", payload))
+
+            def upsert_retrieval(self, *, remote_id, payload):
+                calls.append(("retrieval", payload))
+                return remote_id or 30
+
+        monkeypatch.setattr("cogsol.management.commands.migrate.CogSolClient", FakeClient)
+
+        cmd = Command()
+        state = {
+            "topics": {
+                "docs": {
+                    "fields": {"name": "docs"},
+                    "meta": {},
+                }
+            },
+            "formatters": {},
+            "metadata_configs": {
+                "docs/category": {
+                    "fields": {"name": "category", "filtrable": True},
+                    "topic": "docs",
+                }
+            },
+            "retrievals": {
+                "doc_search": {
+                    "fields": {
+                        "name": "doc_search",
+                        "topic": "docs",
+                        "filters": ["category"],
+                    }
+                }
+            },
+            "ingestion_configs": {},
+        }
+
+        cmd._sync_content_with_api(
+            api_base="https://api.invalid",
+            api_key=None,
+            state=state,
+            remote_ids=cmd._empty_content_remote(),
+            class_map={},
+            project_path=Path("."),
+            touched=None,
+        )
+
+        assert [kind for kind, _ in calls] == ["topic", "metadata_config", "retrieval"]
+        assert calls[-1][1]["filters"] == [20]
+
+
 class TestRollbackDeleteDispatch:
     def test_delete_created_entry_supports_mcp_tool(self) -> None:
         class FakeClient:

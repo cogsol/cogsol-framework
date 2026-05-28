@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 from cogsol.agents import BaseAgent, genconfigs, optimizations
-from cogsol.core.loader import collect_definitions
+from cogsol.core.loader import collect_classes, collect_definitions
 from cogsol.core.migrations import diff_states, empty_state
 from cogsol.db.migrations import (
     AlterField,
@@ -276,6 +276,10 @@ class ProductDocsSearch(BaseRetrievalTool):
 
             defs = collect_definitions(project_path, "agents")
             assert "product_docs_search" in defs["retrieval_tools"]
+
+            classes = collect_classes(project_path, "agents")
+            assert "product_docs_search" in classes["retrieval_tools"]
+            assert "ProductDocsSearch" not in classes["retrieval_tools"]
 
             ops = diff_states(empty_state(), defs, app="agents")
             create_ops = [op for op in ops if isinstance(op, CreateRetrievalTool)]
