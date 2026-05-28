@@ -5,8 +5,10 @@ Tests for Content API loader and migrations.
 import tempfile
 from pathlib import Path
 
+from cogsol.content import BaseMetadataConfig
 from cogsol.core.loader import (
     collect_content_definitions,
+    serialize_value,
 )
 from cogsol.core.migrations import (
     diff_states,
@@ -146,6 +148,15 @@ class TestDiffStatesContent:
 
 class TestCollectContentDefinitions:
     """Tests for collect_content_definitions function."""
+
+    def test_serializes_metadata_config_filter_reference(self):
+        """Metadata filter classes should serialize to migration-safe names."""
+
+        class CategoryMetadata(BaseMetadataConfig):
+            name = "category"
+
+        assert serialize_value(CategoryMetadata) == "category"
+        assert serialize_value([CategoryMetadata]) == ["category"]
 
     def test_returns_empty_when_no_data_folder(self):
         """Should return empty state when data/ doesn't exist."""
