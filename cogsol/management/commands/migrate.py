@@ -1135,13 +1135,13 @@ class Command(BaseCommand):
 
         colors = {}
         if _get_meta("assistant_name_color"):
-            colors["assistant_name_color"] = _get_meta("assistant_name_color")
+            colors["nameColor"] = _get_meta("assistant_name_color")
         if _get_meta("primary_color"):
-            colors["primary_color"] = _get_meta("primary_color")
+            colors["primaryColor"] = _get_meta("primary_color")
         if _get_meta("secondary_color"):
-            colors["secondary_color"] = _get_meta("secondary_color")
+            colors["secondaryColor"] = _get_meta("secondary_color")
         if _get_meta("border_color"):
-            colors["border_color"] = _get_meta("border_color")
+            colors["borderColor"] = _get_meta("border_color")
 
         payload = {
             "generation_config": _normalize_config(_get("generation_config")),
@@ -1177,7 +1177,9 @@ class Command(BaseCommand):
                 getattr(cls, "lessons", []) if cls else fields.get("lessons")
             ),
             "realtime_available": bool(_get("realtime", False)),
-            "info": None,
+            "reasoning_available": bool(_get("reasoning", False)),
+            "websearch_available": bool(_get("websearch", False)),
+            "info": _get_meta("chat_name"),
             "colors": colors,
             "logo": _get_meta("logo_url"),
             "streaming_available": bool(_get("streaming", False)),
@@ -1360,9 +1362,6 @@ class Command(BaseCommand):
 
         source = _normalize_code(source)
         lines = source.splitlines()
-        # Strip decorator lines if any (not expected but safe).
-        while lines and lines[0].lstrip().startswith("@"):
-            lines.pop(0)
 
         try:
             fn_tree = ast.parse(source)

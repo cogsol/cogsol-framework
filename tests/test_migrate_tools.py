@@ -251,6 +251,22 @@ class TestToolScriptFromClass:
         assert 'response = {"lat": latitude, "lon": longitude}' in script
         ast.parse(script)
 
+    def test_includes_import_in_decorated_run(self) -> None:
+        from cogsol.tools import tool_params
+
+        class EncodeTool(BaseTool):
+            @tool_params(text={"description": "Text to encode", "type": "string", "required": True})
+            def run(self, text: str = "", chat=None, data=None, secrets=None, log=None):
+                import base64
+
+                return base64.b64encode(text.encode()).decode()
+
+        script = Command()._tool_script_from_class(EncodeTool)
+
+        assert "import base64" in script
+        assert "text = params.get('text')" in script
+        ast.parse(script)
+
 
 class TestMigrateMCPAssociationOnly:
     def test_hydrates_mcp_ids_and_associates_existing_tool(self, monkeypatch) -> None:

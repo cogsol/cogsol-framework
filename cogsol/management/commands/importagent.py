@@ -247,6 +247,11 @@ def _formatter_class_name(name: str) -> str:
     return base if base.endswith("Formatter") else base + "Formatter"
 
 
+def _metadata_config_class_name(name: str) -> str:
+    base = _safe_class_name(name, "Metadata")
+    return base if base.endswith("Metadata") else base + "Metadata"
+
+
 def _faq_class(item: dict[str, Any]) -> str:
     name = item.get("name") or item.get("question") or "FAQ"
     cls_name = _safe_class_name(name, "FAQ") + "FAQ"
@@ -344,6 +349,34 @@ class Command(BaseCommand):
         gen_pre_expr = "genconfigs.QA()" if str(gen_pre).upper() == "QA" else repr(gen_pre)
 
         has_retrieval_tools = False
+        _colors = assistant.get("colors") or {}
+        _name_color = _colors.get("nameColor")
+        _primary_color = _colors.get("primaryColor")
+        _secondary_color = _colors.get("secondaryColor")
+        _border_color = _colors.get("borderColor")
+        _reasoning = bool(assistant.get("reasoning_available", False))
+        _websearch = bool(assistant.get("websearch_available", False))
+
+        _meta_lines = [
+            f"        name = {class_name!r}",
+            f"        chat_name = {agent_desc!r}",
+            f"        logo_url = {assistant.get('logo')!r}",
+        ]
+        if _name_color:
+            _meta_lines.append(f"        assistant_name_color = {_name_color!r}")
+        if _primary_color:
+            _meta_lines.append(f"        primary_color = {_primary_color!r}")
+        if _secondary_color:
+            _meta_lines.append(f"        secondary_color = {_secondary_color!r}")
+        if _border_color:
+            _meta_lines.append(f"        border_color = {_border_color!r}")
+
+        _extra_fields = ""
+        if _reasoning:
+            _extra_fields += f"    reasoning = True\n"
+        if _websearch:
+            _extra_fields += f"    websearch = True\n"
+
         agent_py = f"""from cogsol.agents import BaseAgent, genconfigs
 from cogsol.prompts import Prompts
 from ..tools import *
@@ -362,11 +395,9 @@ class {class_name}(BaseAgent):
     initial_message = {assistant.get("initial_message")!r}
     forced_termination_message = {assistant.get("end_message")!r}
     no_information_message = {assistant.get("not_info_message")!r}
-
+{_extra_fields}
     class Meta:
-        name = {class_name!r}
-        chat_name = {agent_desc!r}
-        logo_url = {assistant.get("logo")!r}
+{chr(10).join(_meta_lines)}
 """
         _write_file(agent_dir / "agent.py", agent_py)
         _write_file(agent_dir / "__init__.py", f"from .agent import {class_name}\n")
@@ -564,6 +595,8 @@ class {class_name}(BaseAgent):
             "no_information_message": assistant.get("not_info_message"),
             "streaming": assistant.get("streaming_available"),
             "realtime": assistant.get("realtime_available"),
+            "reasoning": assistant.get("reasoning_available"),
+            "websearch": assistant.get("websearch_available"),
             "tools": [n for n in (_tool_name_for_id(sid) for sid in tools_ids) if n],
             "pretools": [n for n in (_tool_name_for_id(sid) for sid in pretools_ids) if n],
             "faqs": [
@@ -594,11 +627,19 @@ class {class_name}(BaseAgent):
                 for le in lessons
             ],
         }
-        meta = {
+        meta: dict[str, Any] = {
             "name": class_name,
             "chat_name": agent_desc,
             "logo_url": assistant.get("logo"),
         }
+        if _name_color:
+            meta["assistant_name_color"] = _name_color
+        if _primary_color:
+            meta["primary_color"] = _primary_color
+        if _secondary_color:
+            meta["secondary_color"] = _secondary_color
+        if _border_color:
+            meta["border_color"] = _border_color
 
         ops_lines = (
             tool_ops
@@ -738,9 +779,11 @@ class {class_name}(BaseAgent):
 
             imported_topics: dict[str, dict[str, Any]] = {}
             imported_formatters: dict[str, dict[str, Any]] = {}
+            imported_metadata_configs: dict[str, dict[str, Any]] = {}
             imported_retrievals: dict[str, dict[str, Any]] = {}
             remote_topics: dict[str, int] = {}
             remote_formatters: dict[str, int] = {}
+            remote_metadata_configs: dict[str, int] = {}
             remote_retrievals: dict[str, int] = {}
             formatter_class_names: dict[int, str] = {}
 
@@ -912,8 +955,67 @@ class {class_name}(BaseAgent):
                     )
                 if formatters_literal:
                     retrieval_lines.append(f"    formatters = {formatters_literal}")
-                if "filters" in retrieval:
-                    retrieval_lines.append(f"    filters = {retrieval.get('filters')!r}")
+
+                # Fetch metadata configs for the topic node and generate classes.
+                # The GET /retrievals/{id}/ endpoint does not expose which metadata
+                # configs are assigned as filters, so we import all metadata configs
+                # for the topic. The user can then assign filters in BaseRetrieval.
+                if isinstance(node_id, int) and topic_path:
+                    try:
+                        topic_cfgs = client.list_metadata_configs(node_id=node_id) or []
+                    except CogSolAPIError:
+                        topic_cfgs = []
+
+                    module_dir = data_path.joinpath(*topic_path.split("/"))
+                    metadata_file = module_dir / "metadata.py"
+
+                    for cfg in topic_cfgs:
+                        if not isinstance(cfg, dict):
+                            continue
+                        cfg_id = cfg.get("id")
+                        cfg_name = cfg.get("name") or f"metadata_{cfg_id}"
+                        cfg_class = _metadata_config_class_name(str(cfg_name))
+                        cfg_key = f"{topic_path}/{cfg_name}"
+
+                        _ensure_import(
+                            metadata_file,
+                            "from cogsol.content import BaseMetadataConfig, MetadataType",
+                        )
+                        cfg_lines = [
+                            f"class {cfg_class}(BaseMetadataConfig):",
+                            '    """Metadata config imported from CogSol API."""',
+                            f"    name = {cfg_name!r}",
+                            f"    type = MetadataType.{cfg.get('type') or 'STRING'}",
+                        ]
+                        if cfg.get("possible_values"):
+                            cfg_lines.append(f"    possible_values = {cfg['possible_values']!r}")
+                        cfg_lines.append(f"    filtrable = {bool(cfg.get('filtrable', False))}")
+                        if _append_block(
+                            metadata_file,
+                            "\n".join(cfg_lines),
+                            f"class {cfg_class}(BaseMetadataConfig):",
+                        ):
+                            import_messages.append(
+                                f"Metadata config: {cfg_name} -> {metadata_file}"
+                            )
+
+                        if cfg_key not in imported_metadata_configs:
+                            imported_metadata_configs[cfg_key] = {
+                                "fields": {
+                                    "name": cfg_name,
+                                    "type": cfg.get("type", "STRING"),
+                                    "possible_values": cfg.get("possible_values") or [],
+                                    "default_value": cfg.get("default_value"),
+                                    "format": cfg.get("format"),
+                                    "filtrable": bool(cfg.get("filtrable", False)),
+                                    "required": bool(cfg.get("required", False)),
+                                    "in_embedding": bool(cfg.get("in_embedding", False)),
+                                    "in_retrieval": bool(cfg.get("in_retrieval", True)),
+                                },
+                                "topic": topic_path,
+                            }
+                            if isinstance(cfg_id, int):
+                                remote_metadata_configs[cfg_key] = cfg_id
 
                 retrieval_block = "\n".join(retrieval_lines)
                 if _append_block(
@@ -939,14 +1041,13 @@ class {class_name}(BaseAgent):
                         "threshold_similarity": retrieval.get("threshold_similarity"),
                         "max_msg_length": retrieval.get("max_msg_length"),
                         "formatters": formatters_value or {},
-                        "filters": retrieval.get("filters"),
                     },
                     "meta": {},
                 }
                 if isinstance(retrieval.get("id"), int):
                     remote_retrievals[retrieval_name] = int(retrieval["id"])
 
-            if imported_topics or imported_formatters or imported_retrievals:
+            if imported_topics or imported_formatters or imported_metadata_configs or imported_retrievals:
                 data_migrations = data_path / "migrations"
                 data_migrations.mkdir(parents=True, exist_ok=True)
                 data_mig_name = next_migration_name(data_migrations, explicit_name=f"import_{slug}")
@@ -962,6 +1063,12 @@ class {class_name}(BaseAgent):
                     ops_lines.append(
                         f"        migrations.CreateReferenceFormatter(name={fmt_name!r}, "
                         f"fields={definition['fields']!r}),"
+                    )
+                # Metadata configs must come before retrievals (filters reference them)
+                for cfg_key, definition in imported_metadata_configs.items():
+                    ops_lines.append(
+                        f"        migrations.CreateMetadataConfig(name={cfg_key!r}, "
+                        f"fields={definition['fields']!r}, topic={definition['topic']!r}),"
                     )
                 for ret_name, definition in imported_retrievals.items():
                     ops_lines.append(
@@ -1010,6 +1117,9 @@ class {class_name}(BaseAgent):
                 data_state.setdefault("remote", {}).setdefault("topics", {}).update(remote_topics)
                 data_state.setdefault("remote", {}).setdefault("formatters", {}).update(
                     remote_formatters
+                )
+                data_state.setdefault("remote", {}).setdefault("metadata_configs", {}).update(
+                    remote_metadata_configs
                 )
                 data_state.setdefault("remote", {}).setdefault("retrievals", {}).update(
                     remote_retrievals
