@@ -47,18 +47,24 @@ class Command(BaseCommand):
 
         print("\nChecking API connectivity...")
 
-        client = CogSolClient(api_key=tenant_api_key)
         error_msg = None
+        client = None
 
-        for check in [
-            lambda: client.list_mcp_servers(),
-            lambda: client.list_nodes(),
-        ]:
-            try:
-                check()
-            except (CogSolAPIError, Exception) as exc:
-                error_msg = str(exc)
-                break
+        try:
+            client = CogSolClient(api_key=tenant_api_key)
+        except (CogSolAPIError, Exception) as exc:
+            error_msg = str(exc)
+
+        if client is not None:
+            for check in [
+                lambda: client.list_mcp_servers(),
+                lambda: client.list_nodes(),
+            ]:
+                try:
+                    check()
+                except (CogSolAPIError, Exception) as exc:
+                    error_msg = str(exc)
+                    break
 
         if error_msg is None:
             print("  CogSol API: OK")
