@@ -373,9 +373,9 @@ class Command(BaseCommand):
 
         _extra_fields = ""
         if _reasoning:
-            _extra_fields += f"    reasoning = True\n"
+            _extra_fields += "    reasoning = True\n"
         if _websearch:
-            _extra_fields += f"    websearch = True\n"
+            _extra_fields += "    websearch = True\n"
 
         agent_py = f"""from cogsol.agents import BaseAgent, genconfigs
 from cogsol.prompts import Prompts
@@ -1047,7 +1047,12 @@ class {class_name}(BaseAgent):
                 if isinstance(retrieval.get("id"), int):
                     remote_retrievals[retrieval_name] = int(retrieval["id"])
 
-            if imported_topics or imported_formatters or imported_metadata_configs or imported_retrievals:
+            if (
+                imported_topics
+                or imported_formatters
+                or imported_metadata_configs
+                or imported_retrievals
+            ):
                 data_migrations = data_path / "migrations"
                 data_migrations.mkdir(parents=True, exist_ok=True)
                 data_mig_name = next_migration_name(data_migrations, explicit_name=f"import_{slug}")

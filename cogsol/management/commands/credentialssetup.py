@@ -31,16 +31,16 @@ class Command(BaseCommand):
         if "401" in error_msg:
             return "Invalid API key — double-check your tenant_api_key."
         if "403" in error_msg:
-            return "Your client_id and tenant_api_key may not match — double-check your credentials."
+            return (
+                "Your client_id and tenant_api_key may not match — double-check your credentials."
+            )
         if "500" in error_msg:
             return "Server error — the API may be experiencing issues, try again later."
         if "Connection error" in error_msg:
             return "Could not reach the server — check your internet connection."
         return ""
 
-    def _check_connectivity(
-        self, client_id: str, client_secret: str, tenant_api_key: str
-    ) -> None:
+    def _check_connectivity(self, client_id: str, client_secret: str, tenant_api_key: str) -> None:
         os.environ[CREDENTIAL_FIELD_TO_ENV_VAR["client_id"]] = client_id
         os.environ[CREDENTIAL_FIELD_TO_ENV_VAR["client_secret"]] = client_secret
         os.environ[CREDENTIAL_FIELD_TO_ENV_VAR["tenant_api_key"]] = tenant_api_key
