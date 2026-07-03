@@ -464,6 +464,10 @@ class CogSolClient:
             {"selected_tools": selected_tools},
         )
 
+    def get_mcp_tool(self, tool_id: int) -> Any:
+        """Get an MCP tool by id."""
+        return self.request("GET", f"/mcp-tools/{tool_id}/")
+
     def delete_mcp_tool(self, tool_id: int) -> None:
         """Delete an MCP tool by id."""
         self.request("DELETE", f"/mcp-tools/{tool_id}/")

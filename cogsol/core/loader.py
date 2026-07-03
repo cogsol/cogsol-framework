@@ -6,9 +6,12 @@ from __future__ import annotations
 
 import ast
 import importlib
+import importlib.abc
+import importlib.machinery
 import inspect
 import sys
 import textwrap
+import types
 from enum import Enum
 from pathlib import Path
 from typing import Any, Union, cast
@@ -98,24 +101,128 @@ def serialize_value(value: Any) -> Any:
     return repr(value)
 
 
-def _import_module(module_name: str, project_path: Path):
-    # Ensure project modules are reloaded from the current project path.
+class _StubValue:
+    """Inert placeholder for attributes of packages that are not installed locally."""
+
+    def __init__(self, name: str) -> None:
+        self._stub_name = name
+
+    def __getattr__(self, item: str) -> "_StubValue":
+        return _StubValue(f"{self._stub_name}.{item}")
+
+    def __call__(self, *args: Any, **kwargs: Any) -> "_StubValue":
+        return _StubValue(f"{self._stub_name}()")
+
+    def __repr__(self) -> str:
+        return f"<stubbed missing dependency {self._stub_name}>"
+
+
+class _MissingDependencyStubber(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+    """Fabricates inert stub modules for packages not installed locally.
+
+    Tool ``run()`` code executes remotely in Cognitive, where its imports are
+    available. Locally we only need the class *definitions*, so module-level
+    imports of missing third-party packages (e.g. ``django``) are satisfied
+    with stubs while collecting definitions.
+
+    The finder is appended at the END of ``sys.meta_path``, so installed
+    packages always resolve normally; only genuinely missing ones are stubbed.
+    """
+
+    def __init__(self, project_path: Path) -> None:
+        self.project_path = project_path
+        self.stubbed_roots: set[str] = set()
+        self.created_modules: list[str] = []
+
+    def _is_stubbable(self, fullname: str) -> bool:
+        top = fullname.split(".")[0]
+        stdlib_names = getattr(sys, "stdlib_module_names", frozenset())
+        if top == "cogsol" or top in stdlib_names:
+            return False
+        # Never stub project-local modules — a typo there is a real error.
+        if (self.project_path / top).exists() or (self.project_path / f"{top}.py").exists():
+            return False
+        return True
+
+    def find_spec(self, fullname, path=None, target=None):
+        if not self._is_stubbable(fullname):
+            return None
+        return importlib.machinery.ModuleSpec(fullname, self, is_package=True)
+
+    def create_module(self, spec):
+        module = types.ModuleType(spec.name)
+        module.__path__ = []  # behave as a package so submodule imports resolve too
+        module.__getattr__ = lambda item, _n=spec.name: _StubValue(f"{_n}.{item}")
+        self.stubbed_roots.add(spec.name.split(".")[0])
+        self.created_modules.append(spec.name)
+        return module
+
+    def exec_module(self, module):
+        return None
+
+
+def _purge_module_cache(module_name: str) -> None:
     parts = module_name.split(".")
     for i in range(1, len(parts) + 1):
-        mod_name = ".".join(parts[:i])
-        sys.modules.pop(mod_name, None)
+        sys.modules.pop(".".join(parts[:i]), None)
     for name in list(sys.modules):
         if name.startswith(f"{module_name}."):
             sys.modules.pop(name, None)
+
+
+def _import_module(module_name: str, project_path: Path):
+    # Ensure project modules are reloaded from the current project path.
+    _purge_module_cache(module_name)
     sys.path.insert(0, str(project_path))
     try:
         importlib.invalidate_caches()
-        return importlib.import_module(module_name)
+        try:
+            return importlib.import_module(module_name)
+        except ModuleNotFoundError as exc:
+            missing_root = (exc.name or "").split(".")[0]
+            target_root = module_name.split(".")[0]
+            # Only stub genuinely foreign packages. If the project module
+            # itself (or another project-local module) is missing, keep the
+            # original error so callers can handle/report it.
+            if (
+                not missing_root
+                or missing_root == target_root
+                or missing_root == "cogsol"
+                or (project_path / missing_root).exists()
+                or (project_path / f"{missing_root}.py").exists()
+            ):
+                raise
+            return _import_module_with_stubs(module_name, project_path)
     finally:
         try:
             sys.path.remove(str(project_path))
         except ValueError:
             pass
+
+
+def _import_module_with_stubs(module_name: str, project_path: Path):
+    """Retry a project-module import stubbing missing third-party packages."""
+    _purge_module_cache(module_name)
+    finder = _MissingDependencyStubber(project_path)
+    sys.meta_path.append(finder)
+    try:
+        importlib.invalidate_caches()
+        module = importlib.import_module(module_name)
+    finally:
+        try:
+            sys.meta_path.remove(finder)
+        except ValueError:
+            pass
+        # Drop fabricated modules so they never shadow real installs later.
+        for name in finder.created_modules:
+            sys.modules.pop(name, None)
+    if finder.stubbed_roots:
+        missing = ", ".join(sorted(finder.stubbed_roots))
+        print(
+            f"  Warning: '{module_name}' imports packages not installed locally: {missing}. "
+            "They were stubbed to collect definitions — this code still runs in Cognitive."
+        )
+    return module
 
 
 def _ignore_missing_module(exc: ModuleNotFoundError, module_name: str) -> bool:

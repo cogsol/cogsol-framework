@@ -18,7 +18,12 @@ from cogsol.core.constants import (
     get_cognitive_api_base_url,
     get_content_api_base_url,
 )
-from cogsol.core.loader import _extract_tool_params, collect_classes, collect_content_classes
+from cogsol.core.loader import (
+    _extract_tool_params,
+    collect_classes,
+    collect_content_classes,
+    collect_content_definitions,
+)
 from cogsol.db import migrations
 from cogsol.management.base import BaseCommand
 from cogsol.prompts import Prompt
@@ -947,6 +952,103 @@ class Command(BaseCommand):
             "code": code,
         }
 
+    def _search_filters_payload(
+        self,
+        *,
+        tool_name: str,
+        filters_value: Any,
+        project_path: Path,
+    ) -> list[dict[str, Any]]:
+        """Resolve ``BaseRetrievalTool.filters`` entries into Cognitive filter payloads.
+
+        Each entry may be a metadata config name ("author"), a topic-qualified
+        name ("product_docs/author"), a BaseMetadataConfig subclass, a remote
+        metadata config id (int), or a raw dict (passed through).  Resolution
+        uses the local ``data/`` definitions plus the remote ids stored in
+        ``data/migrations/.state.json``.
+        """
+        refs = list(filters_value or [])
+        if not refs:
+            return []
+
+        try:
+            content_defs = collect_content_definitions(project_path, "data")
+            metadata_defs = content_defs.get("metadata_configs", {}) or {}
+        except Exception:
+            metadata_defs = {}
+
+        try:
+            state_path = project_path / "data" / "migrations" / ".state.json"
+            _, remote = self._load_content_state(state_path)
+            remote_cfg_ids = remote.get("metadata_configs", {}) or {}
+        except Exception:
+            remote_cfg_ids = {}
+
+        def _entry(cfg_key: str, fields: dict[str, Any]) -> dict[str, Any]:
+            remote_id = remote_cfg_ids.get(cfg_key)
+            if remote_id is None:
+                raise CogSolAPIError(
+                    f"Filter '{cfg_key}' on retrieval tool '{tool_name}' has no migrated "
+                    "metadata config id. Run 'python manage.py migrate data' first."
+                )
+            entry: dict[str, Any] = {
+                "metadata_config_id": int(remote_id),
+                "name": fields.get("name") or cfg_key.rsplit("/", 1)[-1],
+                "type": str(fields.get("type") or "STRING").lower(),
+            }
+            possible_values = fields.get("possible_values") or []
+            if possible_values:
+                entry["possible_values"] = list(possible_values)
+            if fields.get("format"):
+                entry["format"] = fields["format"]
+            return entry
+
+        resolved: list[dict[str, Any]] = []
+        for ref in refs:
+            if isinstance(ref, dict):
+                resolved.append(ref)
+                continue
+            if isinstance(ref, int):
+                by_id = [
+                    key
+                    for key, rid in remote_cfg_ids.items()
+                    if rid == ref and key in metadata_defs
+                ]
+                if not by_id:
+                    raise CogSolAPIError(
+                        f"Filter id {ref} on retrieval tool '{tool_name}' does not match "
+                        "any migrated metadata config. Use the metadata config name instead."
+                    )
+                cfg_key = by_id[0]
+                resolved.append(_entry(cfg_key, metadata_defs[cfg_key].get("fields", {})))
+                continue
+
+            if isinstance(ref, type):
+                ref_name = getattr(ref, "name", None) or ref.__name__
+            else:
+                ref_name = str(ref)
+
+            if ref_name in metadata_defs:
+                matches = [ref_name]
+            else:
+                matches = [
+                    key for key in metadata_defs if key.rsplit("/", 1)[-1] == ref_name
+                ]
+            if not matches:
+                raise CogSolAPIError(
+                    f"Filter '{ref_name}' on retrieval tool '{tool_name}' does not match "
+                    "any metadata config defined in data/. Define it in the topic's "
+                    "metadata.py (with filtrable = True) and migrate the data app first."
+                )
+            if len(matches) > 1:
+                raise CogSolAPIError(
+                    f"Filter '{ref_name}' on retrieval tool '{tool_name}' is ambiguous: "
+                    f"{', '.join(sorted(matches))}. Use 'topic/name' to disambiguate."
+                )
+            cfg_key = matches[0]
+            resolved.append(_entry(cfg_key, metadata_defs[cfg_key].get("fields", {})))
+        return resolved
+
     def _retrieval_tool_payload(
         self,
         *,
@@ -1001,6 +1103,11 @@ class Command(BaseCommand):
             "name": _get("name") or tool_name,
             "description": description,
             "parameters": params,
+            "filters": self._search_filters_payload(
+                tool_name=tool_name,
+                filters_value=_get("filters"),
+                project_path=project_path,
+            ),
             "show_tool_message": bool(_get("show_tool_message", False)),
             "show_assistant_message": bool(_get("show_assistant_message", False)),
             "edit_available": bool(_get("edit_available", True)),
@@ -1133,15 +1240,16 @@ class Command(BaseCommand):
             if remote_id:
                 pretool_ids.append(remote_id)
 
+        # The chat frontend reads camelCase keys from the colors JSON.
         colors = {}
         if _get_meta("assistant_name_color"):
-            colors["assistant_name_color"] = _get_meta("assistant_name_color")
+            colors["nameColor"] = _get_meta("assistant_name_color")
         if _get_meta("primary_color"):
-            colors["primary_color"] = _get_meta("primary_color")
+            colors["primaryColor"] = _get_meta("primary_color")
         if _get_meta("secondary_color"):
-            colors["secondary_color"] = _get_meta("secondary_color")
+            colors["secondaryColor"] = _get_meta("secondary_color")
         if _get_meta("border_color"):
-            colors["border_color"] = _get_meta("border_color")
+            colors["borderColor"] = _get_meta("border_color")
 
         payload = {
             "generation_config": _normalize_config(_get("generation_config")),
@@ -1177,7 +1285,7 @@ class Command(BaseCommand):
                 getattr(cls, "lessons", []) if cls else fields.get("lessons")
             ),
             "realtime_available": bool(_get("realtime", False)),
-            "info": None,
+            "info": _get_meta("alias") or None,
             "colors": colors,
             "logo": _get_meta("logo_url"),
             "streaming_available": bool(_get("streaming", False)),

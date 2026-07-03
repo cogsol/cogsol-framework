@@ -69,7 +69,12 @@ def _cache_is_fresh(path: Path, ref: str) -> bool:
     return age < CACHE_TTL_SECONDS
 
 
-def _download_tarball(repo: str, ref: str, github_token: str | None = None) -> Path:
+def _download_tarball(
+    repo: str,
+    ref: str,
+    github_token: str | None = None,
+    force_refresh: bool = False,
+) -> Path:
     """Download the repo tarball and cache it. Returns path to the .tar.gz."""
     tarballs_dir = CACHE_DIR / "tarballs"
     tarballs_dir.mkdir(parents=True, exist_ok=True)
@@ -78,7 +83,7 @@ def _download_tarball(repo: str, ref: str, github_token: str | None = None) -> P
     ref_slug = ref.replace("/", "--")
     cache_path = tarballs_dir / f"{slug}-{ref_slug}.tar.gz"
 
-    if _cache_is_fresh(cache_path, ref):
+    if not force_refresh and _cache_is_fresh(cache_path, ref):
         return cache_path
 
     url = TARBALL_URL.format(repo=repo, ref=ref)
@@ -231,9 +236,26 @@ def fetch_cookbook_directory(
         Path to the extracted directory.
     """
     repo = repo or DEFAULT_REPO
-    tarball_path = _download_tarball(repo, ref, github_token=github_token)
     prefix = f"{kind.rstrip('/')}/{name}"
-    return _extract_subdirectory(tarball_path, prefix)
+    tarball_path = _download_tarball(repo, ref, github_token=github_token)
+    try:
+        return _extract_subdirectory(tarball_path, prefix)
+    except CookbookError as exc:
+        # The entry may have been pushed to the repo after the tarball was
+        # cached (branch/tag refs are cached for up to an hour). Refresh the
+        # cache once and retry before giving up. SHA refs are immutable, so
+        # a refresh cannot change the outcome.
+        if _is_sha(ref) or "not found" not in str(exc):
+            raise
+        tarball_path = _download_tarball(
+            repo, ref, github_token=github_token, force_refresh=True
+        )
+        try:
+            return _extract_subdirectory(tarball_path, prefix)
+        except CookbookError as exc2:
+            if "not found" in str(exc2):
+                raise CookbookError(f"'{prefix}' not found in {repo}@{ref}.") from exc2
+            raise
 
 
 def materialize_cookbook(source_dir: Path, target_dir: Path, force: bool = False) -> None:

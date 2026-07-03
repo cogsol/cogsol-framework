@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `cogsol-admin startproject` can now scaffold projects from CogSol Cookbook templates and examples via `--from-template` / `--from-example`, with `--list-templates` / `--list-examples` to browse available entries. Supports custom cookbook repositories (`--cookbook-repo`) and private repos (`--github-token`).
+- `BaseRetrievalTool.filters`: searches can now declare metadata filters (by metadata config name, `topic/name`, or `BaseMetadataConfig` subclass). `migrate` resolves them to Cognitive filter definitions (`metadata_config_id`, type, possible values, format) and assigns them to the search.
+- `editmcptools` and `deletemcptools` commands for editing/removing MCP servers and their tools (updates classes, `.env` vars, and Cognitive without duplications).
+- `importagent` now also imports MCP servers/tools, topic metadata configs (`data/<topic>/metadata.py`), and search filters (collapsing date filter triplets into a single metadata reference).
+
+- `BaseAgent.Meta.alias`: assistant alias shown in the chat UI (Cognitive `info` field). `startagent` template now documents all personalization Meta fields.
+
+### Fixed
+- `startproject --from-template/--from-example` no longer fails for entries pushed to the cookbook repo after the tarball was cached: on "not found" the cache is refreshed once and the fetch retried (branch/tag refs only — SHA refs are immutable). The error message now includes `repo@ref` and lists the available entries of that kind.
+- `makemigrations`/`migrate` no longer fail when tool code imports packages that only exist in the Cognitive runtime (e.g. `django`): missing third-party imports are stubbed during definition collection with a warning. Project-local import errors still fail loudly.
+- Agent personalization colors are now written with the camelCase keys the chat frontend actually reads (`nameColor`, `primaryColor`, `secondaryColor`, `borderColor`) instead of unused snake_case keys, and `info` is populated from `Meta.alias` instead of always being `None`.
+- `importagent` now imports the assistant's personalization (alias/`info` and colors) into the generated `Meta`, accepting both camelCase and legacy snake_case color keys.
+- `migrate` no longer wipes filters assigned to a search in the portal: the retrieval tool payload now always includes the `filters` resolved from the class definition.
+- `importagent` handles MCP `server` references returned as strings or nested dicts, and no longer skips generating classes when the template file contains commented-out examples with the same class name.
 
 ---
 

@@ -173,6 +173,34 @@ def _retrieval_tool_class_name(tool: dict[str, Any]) -> str:
     return base_name if base_name.endswith("Search") else base_name + "Search"
 
 
+def _search_filter_names(tool: dict[str, Any]) -> list[str]:
+    """Collapse the Cognitive ``filters`` list into unique metadata names.
+
+    Date filters are stored as three entries (name, name_start, name_end) —
+    group them by metadata_config_id (or stripped base name) and keep one.
+    """
+    names: list[str] = []
+    seen: set[str] = set()
+    for f in tool.get("filters") or []:
+        if not isinstance(f, dict):
+            continue
+        fname = str(f.get("name") or "").strip()
+        if not fname:
+            continue
+        base = fname
+        for suffix in ("_start", "_end"):
+            if base.endswith(suffix):
+                base = base[: -len(suffix)]
+                break
+        cfg_id = f.get("metadata_config_id")
+        key = f"id:{cfg_id}" if cfg_id is not None else f"name:{base}"
+        if key in seen:
+            continue
+        seen.add(key)
+        names.append(base)
+    return names
+
+
 def _retrieval_tool_class_from_api(tool: dict[str, Any], retrieval_name: str | None) -> str:
     name = tool.get("name") or "Search"
     class_name = _retrieval_tool_class_name(tool)
@@ -188,6 +216,8 @@ def _retrieval_tool_class_from_api(tool: dict[str, Any], retrieval_name: str | N
             }
         )
     retrieval_value = retrieval_name if retrieval_name is not None else None
+    filter_names = _search_filter_names(tool)
+    filters_line = f"\n    filters = {filter_names!r}" if filter_names else ""
 
     template = f"""
 class {class_name}(BaseRetrievalTool):
@@ -196,7 +226,7 @@ class {class_name}(BaseRetrievalTool):
     name = {name!r}
     description = {description!r}
     retrieval = {retrieval_value!r}
-    parameters = {params!r}
+    parameters = {params!r}{filters_line}
     show_tool_message = {bool(tool.get("show_tool_message", False))}
     show_assistant_message = {bool(tool.get("show_assistant_message", False))}
     edit_available = {bool(tool.get("edit_available", True))}
@@ -274,6 +304,124 @@ def _lesson_class(item: dict[str, Any]) -> str:
     )
 
 
+def _has_class_def(source: str, class_name: str) -> bool:
+    """True if *source* contains a real (non-commented) top-level class definition.
+
+    A plain substring check would also match commented-out template examples
+    (e.g. ``# class AtlassianMCPServer(BaseMCPServer):``).
+    """
+    return re.search(rf"^class\s+{re.escape(class_name)}\b", source, re.MULTILINE) is not None
+
+
+def _mcp_server_class_name(server: dict[str, Any]) -> str:
+    name = server.get("name") or "MCPServer"
+    base = _safe_class_name(name, "MCPServer")
+    return base if base.endswith("MCPServer") else base + "MCPServer"
+
+
+def _mcp_tool_class_name_from_data(tool: dict[str, Any]) -> str:
+    name = tool.get("name") or "MCPTool"
+    base = _safe_class_name(name, "MCPTool")
+    return base if base.endswith("MCPTool") else base + "MCPTool"
+
+
+def _mcp_env_key(server_name: str, suffix: str) -> str:
+    base = re.sub(r"[^a-zA-Z0-9]+", "_", server_name).strip("_").upper()
+    suf = re.sub(r"[^a-zA-Z0-9]+", "_", suffix).strip("_").upper()
+    return f"MCP_{base}_{suf}"
+
+
+def _mcp_server_class_from_api(server: dict[str, Any]) -> str:
+    """Generate a BaseMCPServer subclass from API data.
+
+    Header values are stored in Key Vault and not returned by the API,
+    so the generated class references env vars that the user must fill in.
+    """
+    name = server.get("name") or "MCPServer"
+    cls_name = _mcp_server_class_name(server)
+    description = server.get("description") or ""
+    url = server.get("url") or ""
+    auth_type = server.get("auth_type") or "none"
+
+    if auth_type == "headers":
+        header_keys = list((server.get("headers") or {}).keys())
+        header_attr_lines: list[str] = []
+        for hk in header_keys:
+            env_key = _mcp_env_key(name, hk)
+            header_attr_lines.append(f"        {hk!r}: os.environ.get({env_key!r}, ''),")
+        headers_block = (
+            "{\n" + "\n".join(header_attr_lines) + "\n    }" if header_attr_lines else "{}"
+        )
+        body = (
+            f"    name = {name!r}\n"
+            f"    description = {description!r}\n"
+            f"    url = {url!r}\n"
+            f"    headers = {headers_block}"
+        )
+        imports_prefix = "import os\n\nfrom cogsol.tools import BaseMCPServer\n\n\n"
+    elif auth_type == "oauth2":
+        oauth_config = server.get("oauth_config") or {}
+        client_id = oauth_config.get("client_id") or ""
+        scopes = oauth_config.get("scopes") or ""
+        cid_env = _mcp_env_key(name, "OAUTH_CLIENT_ID")
+        scopes_env = _mcp_env_key(name, "OAUTH_SCOPES")
+        body_lines = [
+            f"    name = {name!r}",
+            f"    description = {description!r}",
+            '    auth_type = "oauth2"',
+            f"    url = {url!r}",
+        ]
+        if client_id:
+            body_lines.append(f"    oauth_client_id = os.environ.get({cid_env!r}, '')")
+        if scopes:
+            body_lines.append(f"    oauth_scopes = os.environ.get({scopes_env!r}, '')")
+        body = "\n".join(body_lines)
+        imports_prefix = "import os\n\nfrom cogsol.tools import BaseMCPServer\n\n\n"
+    else:
+        body = (
+            f"    name = {name!r}\n"
+            f"    description = {description!r}\n"
+            '    auth_type = "none"\n'
+            f"    url = {url!r}"
+        )
+        imports_prefix = "from cogsol.tools import BaseMCPServer\n\n\n"
+
+    return (
+        f"{imports_prefix}class {cls_name}(BaseMCPServer):\n"
+        f'    """MCP server definition (imported from CogSol API)."""\n\n'
+        f"{body}\n"
+    )
+
+
+def _mcp_tool_class_from_api(tool: dict[str, Any], server_cls_name: str) -> str:
+    name = tool.get("name") or "tool"
+    cls_name = _mcp_tool_class_name_from_data(tool)
+    description = tool.get("description") or ""
+    return (
+        f"class {cls_name}(BaseMCPTool):\n"
+        f'    """MCP tool definition (imported from CogSol API)."""\n\n'
+        f"    name = {name!r}\n"
+        f"    description = {description!r}\n"
+        f"    server = {server_cls_name}\n"
+    )
+
+
+def _mcp_server_env_placeholders(server: dict[str, Any]) -> dict[str, str]:
+    """Return env vars that need to be set for this server (with empty placeholder values)."""
+    name = server.get("name") or "MCPServer"
+    auth_type = server.get("auth_type") or "none"
+    placeholders: dict[str, str] = {}
+    if auth_type == "headers":
+        for hk in (server.get("headers") or {}).keys():
+            placeholders[_mcp_env_key(name, hk)] = ""
+    elif auth_type == "oauth2":
+        oauth_config = server.get("oauth_config") or {}
+        if oauth_config.get("client_id"):
+            placeholders[_mcp_env_key(name, "OAUTH_CLIENT_ID")] = oauth_config["client_id"]
+        placeholders[_mcp_env_key(name, "OAUTH_SCOPES")] = oauth_config.get("scopes") or ""
+    return placeholders
+
+
 class Command(BaseCommand):
     help = "Import an existing CogSol assistant into the local project."
 
@@ -344,6 +492,34 @@ class Command(BaseCommand):
         gen_pre_expr = "genconfigs.QA()" if str(gen_pre).upper() == "QA" else repr(gen_pre)
 
         has_retrieval_tools = False
+
+        # Personalization: the portal stores camelCase color keys; older
+        # framework-migrated assistants may have snake_case leftovers.
+        assistant_colors = assistant.get("colors") or {}
+        if not isinstance(assistant_colors, dict):
+            assistant_colors = {}
+
+        def _color(camel: str, snake: str) -> Any:
+            return assistant_colors.get(camel) or assistant_colors.get(snake) or None
+
+        meta_lines = [
+            f"        name = {class_name!r}",
+            f"        chat_name = {agent_desc!r}",
+        ]
+        if assistant.get("info"):
+            meta_lines.append(f"        alias = {assistant.get('info')!r}")
+        meta_lines.append(f"        logo_url = {assistant.get('logo')!r}")
+        personalization = {
+            "assistant_name_color": _color("nameColor", "assistant_name_color"),
+            "primary_color": _color("primaryColor", "primary_color"),
+            "secondary_color": _color("secondaryColor", "secondary_color"),
+            "border_color": _color("borderColor", "border_color"),
+        }
+        for meta_attr, color_value in personalization.items():
+            if color_value:
+                meta_lines.append(f"        {meta_attr} = {color_value!r}")
+        meta_block = "\n".join(meta_lines)
+
         agent_py = f"""from cogsol.agents import BaseAgent, genconfigs
 from cogsol.prompts import Prompts
 from ..tools import *
@@ -364,9 +540,7 @@ class {class_name}(BaseAgent):
     no_information_message = {assistant.get("not_info_message")!r}
 
     class Meta:
-        name = {class_name!r}
-        chat_name = {agent_desc!r}
-        logo_url = {assistant.get("logo")!r}
+{meta_block}
 """
         _write_file(agent_dir / "agent.py", agent_py)
         _write_file(agent_dir / "__init__.py", f"from .agent import {class_name}\n")
@@ -380,6 +554,9 @@ class {class_name}(BaseAgent):
         retrieval_tools: list[dict[str, Any]] = []
         retrieval_tools_by_id: dict[int, dict[str, Any]] = {}
         retrieval_cache: dict[int, str | None] = {}
+        mcp_tools: list[dict[str, Any]] = []
+        mcp_tools_by_id: dict[int, dict[str, Any]] = {}
+        mcp_servers_cache: dict[int, dict[str, Any]] = {}
 
         def _resolve_retrieval_name(retrieval_id: int | None) -> str | None:
             if not retrieval_id:
@@ -410,8 +587,29 @@ class {class_name}(BaseAgent):
                     retrieval_tool["_retrieval_name"] = retrieval_name
                     retrieval_tools.append(retrieval_tool)
                     retrieval_tools_by_id[int(tool_id)] = retrieval_tool
-                except CogSolAPIError as exc2:
-                    print(f"Warning: could not import tool {tool_id}: {exc2}")
+                except CogSolAPIError:
+                    try:
+                        mcp_tool = client.get_mcp_tool(tool_id)
+                        if isinstance(mcp_tool, dict):
+                            server_ref = mcp_tool.get("server") or mcp_tool.get("server_id")
+                            # server may be a nested dict {"id": N, ...} instead of a bare int
+                            if isinstance(server_ref, dict):
+                                server_ref = server_ref.get("id")
+                            try:
+                                server_ref_int = int(server_ref) if server_ref is not None else None
+                            except (TypeError, ValueError):
+                                server_ref_int = None
+                            if server_ref_int is not None and server_ref_int not in mcp_servers_cache:
+                                try:
+                                    mcp_servers_cache[server_ref_int] = client.get_mcp_server(
+                                        server_ref_int
+                                    )
+                                except CogSolAPIError:
+                                    mcp_servers_cache[server_ref_int] = {}
+                            mcp_tools.append(mcp_tool)
+                            mcp_tools_by_id[int(tool_id)] = mcp_tool
+                    except CogSolAPIError as exc3:
+                        print(f"  Warning: could not import tool {tool_id}: {exc3}")
 
         tools_file = project_path / app / "tools.py"
         existing = tools_file.read_text(encoding="utf-8") if tools_file.exists() else ""
@@ -457,6 +655,121 @@ class {class_name}(BaseAgent):
         if retrieval_tools:
             has_retrieval_tools = True
 
+        # -- MCP servers and tools --
+        has_mcp_tools = False
+        mcp_servers_file = project_path / app / "mcp_servers.py"
+        mcp_tools_file = project_path / app / "mcp_tools.py"
+
+        # Group MCP tools by their server id.
+        # server may be a bare int, a string, or a nested dict {"id": N, ...}.
+        mcp_server_tool_map: dict[int, list[dict[str, Any]]] = {}
+        for mt in mcp_tools:
+            server_ref = mt.get("server") or mt.get("server_id")
+            if isinstance(server_ref, dict):
+                server_ref = server_ref.get("id")
+            try:
+                server_ref_int = int(server_ref) if server_ref is not None else None
+            except (TypeError, ValueError):
+                server_ref_int = None
+            if server_ref_int is not None:
+                mcp_server_tool_map.setdefault(server_ref_int, []).append(mt)
+
+        env_path = project_path / ".env"
+        env_placeholders_needed: dict[str, str] = {}
+
+        for server_id, s_tools in mcp_server_tool_map.items():
+            server_data = mcp_servers_cache.get(server_id) or {}
+            # If the server fetch failed, build a minimal stub from what we know.
+            if not server_data:
+                first_tool = s_tools[0] if s_tools else {}
+                inferred_name = (
+                    first_tool.get("server_name")
+                    or first_tool.get("mcp_server_name")
+                    or f"MCPServer{server_id}"
+                )
+                server_data = {"id": server_id, "name": inferred_name}
+                print(
+                    f"  Warning: could not fetch MCP server {server_id} from API; "
+                    f"generating stub class '{inferred_name}'."
+                )
+            srv_cls_name = _mcp_server_class_name(server_data)
+
+            # Write/append server class.
+            server_code = _mcp_server_class_from_api(server_data)
+            if mcp_servers_file.exists():
+                existing_srv = mcp_servers_file.read_text(encoding="utf-8")
+                if not _has_class_def(existing_srv, srv_cls_name):
+                    class_only = (
+                        "\n\n"
+                        + "\n".join(
+                            ln
+                            for ln in server_code.splitlines()
+                            if not ln.startswith("import ") and not ln.startswith("from ")
+                        ).strip()
+                        + "\n"
+                    )
+                    _write_file(mcp_servers_file, existing_srv.rstrip() + class_only)
+                    import_messages.append(f"MCP server: {srv_cls_name} -> {mcp_servers_file}")
+            else:
+                _write_file(mcp_servers_file, server_code)
+                import_messages.append(f"MCP server: {srv_cls_name} -> {mcp_servers_file}")
+
+            # Write/append tool classes.
+            import_line = f"from {app}.mcp_servers import {srv_cls_name}"
+            if mcp_tools_file.exists():
+                existing_tools = mcp_tools_file.read_text(encoding="utf-8")
+                if import_line not in existing_tools:
+                    existing_tools = existing_tools.rstrip() + f"\n{import_line}\n"
+                for mt in s_tools:
+                    tool_cls_name = _mcp_tool_class_name_from_data(mt)
+                    if not _has_class_def(existing_tools, tool_cls_name):
+                        tool_block = "\n\n" + _mcp_tool_class_from_api(mt, srv_cls_name).strip() + "\n"
+                        existing_tools = existing_tools.rstrip() + tool_block
+                        import_messages.append(
+                            f"MCP tool: {tool_cls_name} -> {mcp_tools_file}"
+                        )
+                _write_file(mcp_tools_file, existing_tools)
+            else:
+                header = (
+                    "from cogsol.tools import BaseMCPTool\n\n"
+                    f"{import_line}\n"
+                )
+                blocks = "\n\n".join(
+                    _mcp_tool_class_from_api(mt, srv_cls_name).strip() for mt in s_tools
+                )
+                _write_file(mcp_tools_file, header + "\n\n" + blocks + "\n")
+                for mt in s_tools:
+                    import_messages.append(
+                        f"MCP tool: {_mcp_tool_class_name_from_data(mt)} -> {mcp_tools_file}"
+                    )
+
+            # Collect env-var placeholders.
+            env_placeholders_needed.update(_mcp_server_env_placeholders(server_data))
+
+        # Write placeholder env vars (empty values to signal what must be configured).
+        if env_placeholders_needed:
+            env_lines: list[str] = []
+            if env_path.exists():
+                env_lines = env_path.read_text(encoding="utf-8").splitlines()
+            existing_env_keys = {
+                ln.split("=", 1)[0].strip()
+                for ln in env_lines
+                if "=" in ln and not ln.strip().startswith("#")
+            }
+            new_vars = {k: v for k, v in env_placeholders_needed.items() if k not in existing_env_keys}
+            if new_vars:
+                env_lines.append("")
+                env_lines.append("# MCP credentials (imported - fill in values)")
+                env_lines.extend(f"{k}={v}" for k, v in new_vars.items())
+                _write_file(env_path, "\n".join(env_lines) + "\n")
+                print(
+                    f"  Added {len(new_vars)} MCP credential placeholder(s) to .env — "
+                    "fill in the values before running migrate."
+                )
+
+        if mcp_tools:
+            has_mcp_tools = True
+
         # Update tools list in agent.py
         def class_name_for_script(script_id: int) -> str | None:
             script = scripts_by_id.get(int(script_id))
@@ -471,8 +784,18 @@ class {class_name}(BaseAgent):
                 return None
             return _retrieval_tool_class_name(tool)
 
+        def class_name_for_mcp_tool(tool_id: int) -> str | None:
+            mt = mcp_tools_by_id.get(int(tool_id))
+            if not mt:
+                return None
+            return _mcp_tool_class_name_from_data(mt)
+
         def _tool_class_for_id(tool_id: int) -> str | None:
-            return class_name_for_script(tool_id) or class_name_for_retrieval_tool(tool_id)
+            return (
+                class_name_for_script(tool_id)
+                or class_name_for_retrieval_tool(tool_id)
+                or class_name_for_mcp_tool(tool_id)
+            )
 
         tool_class_names = [n for n in (_tool_class_for_id(sid) for sid in tools_ids) if n]
         pretool_class_names = [n for n in (_tool_class_for_id(sid) for sid in pretools_ids) if n]
@@ -482,6 +805,11 @@ class {class_name}(BaseAgent):
             agent_source = agent_source.replace(
                 "from ..tools import *",
                 "from ..tools import *\nfrom ..searches import *",
+            )
+        if has_mcp_tools and "from ..mcp_tools import *" not in agent_source:
+            agent_source = agent_source.replace(
+                "from ..tools import *",
+                "from ..tools import *\nfrom ..mcp_tools import *",
             )
         agent_source = agent_source.replace(
             "    tools = []", f"    tools = [{', '.join(n + '()' for n in tool_class_names)}]"
@@ -531,6 +859,7 @@ class {class_name}(BaseAgent):
                 "name": tname,
                 "description": tool.get("description"),
                 "parameters": tool.get("parameters") or [],
+                "filters": _search_filter_names(tool),
                 "retrieval": tool.get("_retrieval_name") or None,
                 "show_tool_message": bool(tool.get("show_tool_message", False)),
                 "show_assistant_message": bool(tool.get("show_assistant_message", False)),
@@ -548,6 +877,9 @@ class {class_name}(BaseAgent):
             rtool = retrieval_tools_by_id.get(int(tool_id))
             if rtool:
                 return rtool.get("name")
+            mt = mcp_tools_by_id.get(int(tool_id))
+            if mt:
+                return mt.get("name")
             return None
 
         agent_fields = {
@@ -599,10 +931,44 @@ class {class_name}(BaseAgent):
             "chat_name": agent_desc,
             "logo_url": assistant.get("logo"),
         }
+        if assistant.get("info"):
+            meta["alias"] = assistant.get("info")
+        for meta_attr, color_value in personalization.items():
+            if color_value:
+                meta[meta_attr] = color_value
+
+        mcp_server_ops: list[str] = []
+        mcp_tool_ops: list[str] = []
+        for server_id, s_tools in mcp_server_tool_map.items():
+            server_data = mcp_servers_cache.get(server_id) or {}
+            if not server_data:
+                continue
+            sname = server_data.get("name") or f"mcp_server_{server_id}"
+            srv_fields = {
+                "name": sname,
+                "description": server_data.get("description") or "",
+                "url": server_data.get("url") or "",
+                "auth_type": server_data.get("auth_type") or "none",
+            }
+            mcp_server_ops.append(
+                f"        migrations.CreateMCPServer(name={sname!r}, fields={srv_fields!r}),"
+            )
+            for mt in s_tools:
+                tname = mt.get("name") or f"mcp_tool_{mt.get('id')}"
+                t_fields = {
+                    "name": tname,
+                    "description": mt.get("description") or "",
+                    "server": sname,
+                }
+                mcp_tool_ops.append(
+                    f"        migrations.CreateMCPTool(name={tname!r}, fields={t_fields!r}),"
+                )
 
         ops_lines = (
             tool_ops
             + retrieval_tool_ops
+            + mcp_server_ops
+            + mcp_tool_ops
             + [
                 f"        migrations.CreateAgent(name={class_name!r}, fields={agent_fields!r}, meta={meta!r}),"
             ]
@@ -662,8 +1028,29 @@ class {class_name}(BaseAgent):
             class_name = _retrieval_tool_class_name(tool)
             state["remote"]["retrieval_tools"][class_name] = tool.get("id")
 
+        for server_id, s_tools in mcp_server_tool_map.items():
+            server_data = mcp_servers_cache.get(server_id) or {}
+            if not server_data:
+                continue
+            sname = server_data.get("name") or f"mcp_server_{server_id}"
+            state.setdefault("remote", {}).setdefault("mcp_servers", {})[sname] = server_id
+            srv_cls = _mcp_server_class_name(server_data)
+            state["remote"]["mcp_servers"][srv_cls] = server_id
+            for mt in s_tools:
+                tname = mt.get("name") or mt.get("id")
+                state.setdefault("remote", {}).setdefault("mcp_tools", {})[tname] = mt.get("id")
+                tool_cls = _mcp_tool_class_name_from_data(mt)
+                state["remote"]["mcp_tools"][tool_cls] = mt.get("id")
+
         # Populate local state snapshot directly from project code
-        state["state"] = collect_definitions(project_path, app)
+        try:
+            state["state"] = collect_definitions(project_path, app)
+        except Exception as exc:
+            print(
+                f"  Warning: could not build full state snapshot ({exc}). "
+                "The import succeeded but .state.json local state may be incomplete. "
+                "Re-import any agents that reference undefined classes."
+            )
         state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
         # ------------------------------------------------------------------
@@ -739,10 +1126,104 @@ class {class_name}(BaseAgent):
             imported_topics: dict[str, dict[str, Any]] = {}
             imported_formatters: dict[str, dict[str, Any]] = {}
             imported_retrievals: dict[str, dict[str, Any]] = {}
+            imported_metadata_cfgs: dict[str, dict[str, Any]] = {}
             remote_topics: dict[str, int] = {}
             remote_formatters: dict[str, int] = {}
             remote_retrievals: dict[str, int] = {}
+            remote_metadata_cfgs: dict[str, int] = {}
             formatter_class_names: dict[int, str] = {}
+            metadata_nodes_done: set[int] = set()
+            metadata_type_names = {"STRING", "INTEGER", "FLOAT", "BOOLEAN", "DATE", "URL"}
+
+            def _import_node_metadata_configs(
+                node: dict[str, Any], node_path: str, module_dir: Path
+            ) -> None:
+                """Fetch a node's metadata configs and generate data/<topic>/metadata.py."""
+                node_id = node.get("id")
+                if not isinstance(node_id, int) or node_id in metadata_nodes_done:
+                    return
+                metadata_nodes_done.add(node_id)
+                try:
+                    payload = client.list_metadata_configs(node_id)
+                except CogSolAPIError as exc:
+                    print(f"  Warning: could not list metadata configs for node {node_id}: {exc}")
+                    return
+                if isinstance(payload, dict):
+                    items = payload.get("results") or payload.get("metadata_configs") or []
+                elif isinstance(payload, list):
+                    items = payload
+                else:
+                    items = []
+
+                metadata_file = module_dir / "metadata.py"
+                for cfg in items:
+                    if not isinstance(cfg, dict) or not cfg.get("name"):
+                        continue
+                    # Skip configs inherited from an ancestor node.
+                    root_node_id = cfg.get("root_node_id")
+                    if isinstance(root_node_id, int) and root_node_id != node_id:
+                        continue
+                    cfg_name = str(cfg["name"])
+                    cfg_type = str(cfg.get("type") or "STRING").upper()
+                    type_expr = (
+                        f"MetadataType.{cfg_type}"
+                        if cfg_type in metadata_type_names
+                        else repr(cfg.get("type"))
+                    )
+                    cls_base = _safe_class_name(cfg_name, "Metadata")
+                    cls_name = (
+                        cls_base if cls_base.endswith("Metadata") else cls_base + "Metadata"
+                    )
+                    lines = [
+                        f"class {cls_name}(BaseMetadataConfig):",
+                        f"    name = {cfg_name!r}",
+                        f"    type = {type_expr}",
+                    ]
+                    if cfg.get("possible_values"):
+                        lines.append(f"    possible_values = {list(cfg['possible_values'])!r}")
+                    if cfg.get("default_value") is not None:
+                        lines.append(f"    default_value = {cfg.get('default_value')!r}")
+                    if cfg.get("format"):
+                        lines.append(f"    format = {cfg.get('format')!r}")
+                    if cfg.get("filtrable"):
+                        lines.append("    filtrable = True")
+                    if cfg.get("required"):
+                        lines.append("    required = True")
+                    if cfg.get("in_embedding"):
+                        lines.append("    in_embedding = True")
+                    if cfg.get("in_retrieval") is False:
+                        lines.append("    in_retrieval = False")
+
+                    _ensure_import(
+                        metadata_file,
+                        "from cogsol.content import BaseMetadataConfig, MetadataType",
+                    )
+                    if _append_block(
+                        metadata_file,
+                        "\n".join(lines),
+                        f"class {cls_name}(BaseMetadataConfig):",
+                    ):
+                        import_messages.append(
+                            f"Metadata config: {node_path}/{cfg_name} -> {metadata_file}"
+                        )
+
+                    cfg_key = f"{node_path}/{cfg_name}"
+                    imported_metadata_cfgs[cfg_key] = {
+                        "fields": {
+                            "name": cfg_name,
+                            "type": cfg_type,
+                            "possible_values": list(cfg.get("possible_values") or []),
+                            "default_value": cfg.get("default_value"),
+                            "format": cfg.get("format"),
+                            "filtrable": bool(cfg.get("filtrable", False)),
+                            "required": bool(cfg.get("required", False)),
+                            "in_embedding": bool(cfg.get("in_embedding", False)),
+                            "in_retrieval": bool(cfg.get("in_retrieval", True)),
+                        },
+                        "topic": node_path,
+                    }
+                    if isinstance(cfg.get("id"), int):
+                        remote_metadata_cfgs[cfg_key] = int(cfg["id"])
 
             for retrieval_id in sorted(retrieval_ids):
                 try:
@@ -796,6 +1277,7 @@ class {class_name}(BaseAgent):
                             }
                             if isinstance(node.get("id"), int):
                                 remote_topics[node_path] = int(node["id"])
+                            _import_node_metadata_configs(node, node_path, module_dir)
 
                 # Formatters used by retrieval
                 formatters_value = {}
@@ -946,7 +1428,12 @@ class {class_name}(BaseAgent):
                 if isinstance(retrieval.get("id"), int):
                     remote_retrievals[retrieval_name] = int(retrieval["id"])
 
-            if imported_topics or imported_formatters or imported_retrievals:
+            if (
+                imported_topics
+                or imported_formatters
+                or imported_retrievals
+                or imported_metadata_cfgs
+            ):
                 data_migrations = data_path / "migrations"
                 data_migrations.mkdir(parents=True, exist_ok=True)
                 data_mig_name = next_migration_name(data_migrations, explicit_name=f"import_{slug}")
@@ -957,6 +1444,11 @@ class {class_name}(BaseAgent):
                     ops_lines.append(
                         f"        migrations.CreateTopic(name={topic_key!r}, "
                         f"fields={definition['fields']!r}, meta={definition['meta']!r}),"
+                    )
+                for cfg_key, definition in imported_metadata_cfgs.items():
+                    ops_lines.append(
+                        f"        migrations.CreateMetadataConfig(name={cfg_key!r}, "
+                        f"fields={definition['fields']!r}, topic={definition['topic']!r}),"
                     )
                 for fmt_name, definition in imported_formatters.items():
                     ops_lines.append(
@@ -1013,6 +1505,9 @@ class {class_name}(BaseAgent):
                 )
                 data_state.setdefault("remote", {}).setdefault("retrievals", {}).update(
                     remote_retrievals
+                )
+                data_state.setdefault("remote", {}).setdefault("metadata_configs", {}).update(
+                    remote_metadata_cfgs
                 )
 
                 data_state["state"] = _strip_class_refs(
