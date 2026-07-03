@@ -401,6 +401,57 @@ class TestFetchCookbookDirectory:
             assert (result / "main.py").read_text() == "code"
             assert (result / "README.md").read_text() == "docs"
 
+    def test_stale_cache_refetches_when_entry_missing(self, tmp_path):
+        """A template pushed after the tarball was cached must still resolve.
+
+        Reproduces the reopened issue: the user tests an example (tarball gets
+        cached), then pushes a new template to their repo — the cached tarball
+        does not contain it yet.
+        """
+        stale = _make_tarball({"owner-repo-old/examples/hello/app.py": "# app"})
+        fresh = _make_tarball(
+            {
+                "owner-repo-new/examples/hello/app.py": "# app",
+                "owner-repo-new/templates/demo/main.py": "# demo",
+            }
+        )
+        with mock.patch("cogsol.core.cookbook.CACHE_DIR", tmp_path):
+            cached = tmp_path / "tarballs" / "owner--repo-main.tar.gz"
+            cached.parent.mkdir(parents=True)
+            cached.write_bytes(stale)  # recent mtime -> considered fresh
+
+            with _mock_urlopen(fresh) as mock_url:
+                result = fetch_cookbook_directory(
+                    "templates", "demo", ref="main", repo="owner/repo"
+                )
+            assert (result / "main.py").read_text() == "# demo"
+            assert mock_url.called
+
+    def test_sha_ref_does_not_refetch(self, tmp_path):
+        """SHA refs are immutable — a missing entry must fail without retrying."""
+        stale = _make_tarball({"owner-repo-old/examples/hello/app.py": "# app"})
+        sha = "a" * 40
+        with mock.patch("cogsol.core.cookbook.CACHE_DIR", tmp_path):
+            cached = tmp_path / "tarballs" / f"owner--repo-{sha}.tar.gz"
+            cached.parent.mkdir(parents=True)
+            cached.write_bytes(stale)
+
+            with mock.patch("cogsol.core.cookbook.request.urlopen") as mock_url:
+                with pytest.raises(CookbookError, match="not found"):
+                    fetch_cookbook_directory("templates", "demo", ref=sha, repo="owner/repo")
+                mock_url.assert_not_called()
+
+    def test_not_found_error_includes_repo_and_ref(self, tmp_path):
+        fresh = _make_tarball({"owner-repo-new/examples/hello/app.py": "# app"})
+        with (
+            _mock_urlopen(fresh),
+            mock.patch("cogsol.core.cookbook.CACHE_DIR", tmp_path),
+        ):
+            with pytest.raises(
+                CookbookError, match=r"'templates/demo' not found in owner/repo@main"
+            ):
+                fetch_cookbook_directory("templates", "demo", ref="main", repo="owner/repo")
+
 
 # ---------------------------------------------------------------------------
 # Integration tests — startproject command
@@ -729,3 +780,33 @@ class TestStartprojectCookbook:
                 ref="main",
             )
         assert result == 1
+
+    def test_not_found_lists_available_entries(self, tmp_path, capsys):
+        cmd = StartprojectCommand()
+        project_dir = tmp_path / "myproject"
+        with (
+            mock.patch(
+                "cogsol.management.commands.startproject.fetch_cookbook_directory",
+                side_effect=CookbookError("'templates/bad' not found in owner/repo@main."),
+            ),
+            mock.patch(
+                "cogsol.management.commands.startproject.list_cookbook_entries",
+                return_value=["demo", "rag-agent"],
+            ),
+        ):
+            result = cmd.handle(
+                project_path=None,
+                name="myproject",
+                directory=str(project_dir),
+                from_template="bad",
+                from_example=None,
+                list_templates=False,
+                list_examples=False,
+                force=False,
+                ref="main",
+                cookbook_repo="owner/repo",
+            )
+        assert result == 1
+        out = capsys.readouterr().out
+        assert "demo" in out
+        assert "rag-agent" in out

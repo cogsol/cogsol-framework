@@ -27,6 +27,13 @@ class {class_name}(BaseAgent):
     class Meta:
         name = "{class_name}"
         chat_name = "{class_name}"
+        # Chat personalization (optional):
+        # alias = "{class_name}"              # name shown in the chat UI
+        # logo_url = "https://.../logo.png"
+        # assistant_name_color = "#FFFFFF"
+        # primary_color = "#1A3C5E"
+        # secondary_color = "#00B4CC"
+        # border_color = "#2E6D8E"
 """
 
 FAQS_TEMPLATE = """\

@@ -65,6 +65,11 @@ class BaseRetrievalTool:
     show_assistant_message: bool = False
     edit_available: bool = True
     answer: bool = True
+    # Metadata filters assigned to this search. Entries can be metadata config
+    # names ("author"), topic-qualified names ("product_docs/author"), or
+    # BaseMetadataConfig subclasses. They are resolved to Cognitive filter
+    # definitions on migrate.
+    filters: list[Any] | None = None
 
     def __init__(self, name: str | None = None, description: str | None = None):
         if name:
@@ -76,6 +81,7 @@ class BaseRetrievalTool:
             self.name = cls_name[:-4] if cls_name.endswith("Tool") else cls_name
         # Avoid sharing mutable metadata across subclasses/instances.
         self.parameters = list(getattr(self, "parameters", []) or [])
+        self.filters = list(getattr(self, "filters", []) or [])
 
     def __repr__(self) -> str:
         return f"<RetrievalTool {self.name or self.__class__.__name__}>"

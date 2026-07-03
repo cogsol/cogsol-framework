@@ -349,6 +349,17 @@ class Command(BaseCommand):
                 materialize_cookbook(source_dir, target_dir, force=force)
             except CookbookError as exc:
                 print(f"Error: {exc}")
+                if "not found" in str(exc):
+                    try:
+                        entries = list_cookbook_entries(
+                            kind, ref=ref, repo=repo, github_token=github_token
+                        )
+                    except CookbookError:
+                        entries = []
+                    if entries:
+                        print(f"Available {kind} in {repo}@{ref}:")
+                        for entry in entries:
+                            print(f"  - {entry}")
                 return 1
 
             # Add default .env.example if the cookbook entry does not provide one

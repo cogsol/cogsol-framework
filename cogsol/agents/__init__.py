@@ -49,7 +49,10 @@ class BaseAgent:
     class Meta:
         name: str | None = None
         chat_name: str | None = None
+        # Alias shown in the chat UI (Cognitive "info" field).
+        alias: str | None = None
         logo_url: str | None = None
+        # Chat personalization colors (hex strings, e.g. "#1A3C5E").
         assistant_name_color: str | None = None
         primary_color: str | None = None
         secondary_color: str | None = None

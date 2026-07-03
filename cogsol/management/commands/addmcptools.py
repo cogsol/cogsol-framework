@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from cogsol.core.api import CogSolAPIError, CogSolClient
+from cogsol.core.constants import get_cognitive_api_base_url
 from cogsol.core.mcp import MCPClient
 from cogsol.management.base import BaseCommand
 
@@ -241,7 +242,7 @@ class Command(BaseCommand):
         oauth_scopes: str,
         oauth_timeout: int,
     ) -> list[dict[str, Any]]:
-        api_base = os.environ.get("COGSOL_API_BASE")
+        api_base = get_cognitive_api_base_url()
         api_key = os.environ.get("COGSOL_API_KEY")
         if not api_base:
             print("COGSOL_API_BASE is required to run assisted OAuth tool discovery.")
@@ -341,13 +342,8 @@ class Command(BaseCommand):
         selected_tools: list[dict[str, Any]],
         oauth_timeout: int,
     ) -> None:
-        api_base = os.environ.get("COGSOL_API_BASE")
+        api_base = get_cognitive_api_base_url()
         api_key = os.environ.get("COGSOL_API_KEY")
-        if not api_base:
-            raise CogSolAPIError(
-                "COGSOL_API_BASE is required. addmcptools now publishes MCP servers/tools "
-                "directly to Cognitive."
-            )
 
         client = CogSolClient(base_url=api_base, api_key=api_key)
         existing = self._find_remote_server(
