@@ -40,6 +40,8 @@ class BaseAgent:
     streaming: bool = False
     self_improvement_mode: bool = False
     realtime: bool = False
+    reasoning: bool = False
+    websearch: bool = False
     lessons: list[Any] = []
     faqs: list[Any] = []
     fixed_responses: list[Any] = []

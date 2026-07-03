@@ -1285,7 +1285,9 @@ class Command(BaseCommand):
                 getattr(cls, "lessons", []) if cls else fields.get("lessons")
             ),
             "realtime_available": bool(_get("realtime", False)),
-            "info": _get_meta("alias") or None,
+            "reasoning_available": bool(_get("reasoning", False)),
+            "websearch_available": bool(_get("websearch", False)),
+            "info": _get_meta("alias") or _get_meta("chat_name"),
             "colors": colors,
             "logo": _get_meta("logo_url"),
             "streaming_available": bool(_get("streaming", False)),
@@ -1468,9 +1470,6 @@ class Command(BaseCommand):
 
         source = _normalize_code(source)
         lines = source.splitlines()
-        # Strip decorator lines if any (not expected but safe).
-        while lines and lines[0].lstrip().startswith("@"):
-            lines.pop(0)
 
         try:
             fn_tree = ast.parse(source)

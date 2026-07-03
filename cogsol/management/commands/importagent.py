@@ -277,6 +277,11 @@ def _formatter_class_name(name: str) -> str:
     return base if base.endswith("Formatter") else base + "Formatter"
 
 
+def _metadata_config_class_name(name: str) -> str:
+    base = _safe_class_name(name, "Metadata")
+    return base if base.endswith("Metadata") else base + "Metadata"
+
+
 def _faq_class(item: dict[str, Any]) -> str:
     name = item.get("name") or item.get("question") or "FAQ"
     cls_name = _safe_class_name(name, "FAQ") + "FAQ"
@@ -520,6 +525,14 @@ class Command(BaseCommand):
                 meta_lines.append(f"        {meta_attr} = {color_value!r}")
         meta_block = "\n".join(meta_lines)
 
+        _reasoning = bool(assistant.get("reasoning_available", False))
+        _websearch = bool(assistant.get("websearch_available", False))
+        _extra_fields = ""
+        if _reasoning:
+            _extra_fields += "    reasoning = True\n"
+        if _websearch:
+            _extra_fields += "    websearch = True\n"
+
         agent_py = f"""from cogsol.agents import BaseAgent, genconfigs
 from cogsol.prompts import Prompts
 from ..tools import *
@@ -538,7 +551,7 @@ class {class_name}(BaseAgent):
     initial_message = {assistant.get("initial_message")!r}
     forced_termination_message = {assistant.get("end_message")!r}
     no_information_message = {assistant.get("not_info_message")!r}
-
+{_extra_fields}
     class Meta:
 {meta_block}
 """
@@ -896,6 +909,8 @@ class {class_name}(BaseAgent):
             "no_information_message": assistant.get("not_info_message"),
             "streaming": assistant.get("streaming_available"),
             "realtime": assistant.get("realtime_available"),
+            "reasoning": assistant.get("reasoning_available"),
+            "websearch": assistant.get("websearch_available"),
             "tools": [n for n in (_tool_name_for_id(sid) for sid in tools_ids) if n],
             "pretools": [n for n in (_tool_name_for_id(sid) for sid in pretools_ids) if n],
             "faqs": [
@@ -926,7 +941,7 @@ class {class_name}(BaseAgent):
                 for le in lessons
             ],
         }
-        meta = {
+        meta: dict[str, Any] = {
             "name": class_name,
             "chat_name": agent_desc,
             "logo_url": assistant.get("logo"),
@@ -1170,10 +1185,7 @@ class {class_name}(BaseAgent):
                         if cfg_type in metadata_type_names
                         else repr(cfg.get("type"))
                     )
-                    cls_base = _safe_class_name(cfg_name, "Metadata")
-                    cls_name = (
-                        cls_base if cls_base.endswith("Metadata") else cls_base + "Metadata"
-                    )
+                    cls_name = _metadata_config_class_name(cfg_name)
                     lines = [
                         f"class {cls_name}(BaseMetadataConfig):",
                         f"    name = {cfg_name!r}",
@@ -1394,8 +1406,6 @@ class {class_name}(BaseAgent):
                     )
                 if formatters_literal:
                     retrieval_lines.append(f"    formatters = {formatters_literal}")
-                if "filters" in retrieval:
-                    retrieval_lines.append(f"    filters = {retrieval.get('filters')!r}")
 
                 retrieval_block = "\n".join(retrieval_lines)
                 if _append_block(
@@ -1421,7 +1431,6 @@ class {class_name}(BaseAgent):
                         "threshold_similarity": retrieval.get("threshold_similarity"),
                         "max_msg_length": retrieval.get("max_msg_length"),
                         "formatters": formatters_value or {},
-                        "filters": retrieval.get("filters"),
                     },
                     "meta": {},
                 }

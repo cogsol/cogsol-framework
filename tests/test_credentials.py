@@ -172,6 +172,32 @@ def test_credentials_setup_command_saves_credentials(tmp_path, monkeypatch):
     }
 
 
+def test_credentials_setup_command_handles_connectivity_failure_on_client_init(
+    tmp_path, monkeypatch
+):
+    _clear_credential_env(monkeypatch)
+    _isolate_store(monkeypatch, tmp_path)
+
+    answers = iter(["client-id"])
+    secrets = iter(["client-secret", "tenant-key"])
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
+    monkeypatch.setattr(CredentialsSetupCommand, "_ask_secret", lambda self, _prompt: next(secrets))
+    monkeypatch.setattr(
+        "cogsol.management.commands.credentialssetup.CogSolClient",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("invalid_grant")),
+    )
+
+    result = CredentialsSetupCommand().handle(project_path=None)
+
+    assert result == 0
+    assert load_stored_credentials(credentials_mod.get_credentials_path()) == {
+        "client_id": "client-id",
+        "client_secret": "client-secret",
+        "tenant_api_key": "tenant-key",
+    }
+
+
 def test_clear_credentials_command_removes_file_and_env(tmp_path, monkeypatch):
     _clear_credential_env(monkeypatch)
     _isolate_store(monkeypatch, tmp_path)
