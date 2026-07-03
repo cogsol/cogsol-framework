@@ -186,8 +186,7 @@ class Command(BaseCommand):
             for name, cls in all_tools.items()
             if (
                 getattr(cls, "server", None) is server_cls
-                or getattr(getattr(cls, "server", None), "__name__", None)
-                == server_cls.__name__
+                or getattr(getattr(cls, "server", None), "__name__", None) == server_cls.__name__
             )
         }
 
@@ -227,8 +226,7 @@ class Command(BaseCommand):
                         and (
                             str(s.get("name", "")).strip().casefold()
                             == server_real_name.strip().casefold()
-                            or str(s.get("url", "")).rstrip("/")
-                            == str(server_url).rstrip("/")
+                            or str(s.get("url", "")).rstrip("/") == str(server_url).rstrip("/")
                         )
                     ),
                     None,
@@ -237,9 +235,7 @@ class Command(BaseCommand):
                     client.delete_mcp_server(int(remote_entry["id"]))
                     print(f"  Deleted MCP server from Cognitive (id={remote_entry['id']}).")
                 else:
-                    print(
-                        "  Warning: MCP server not found in Cognitive; skipping API deletion."
-                    )
+                    print("  Warning: MCP server not found in Cognitive; skipping API deletion.")
             except CogSolAPIError as exc:
                 print(f"  Warning: could not delete server from API: {exc}")
         else:
@@ -254,9 +250,7 @@ class Command(BaseCommand):
                 servers_file.write_text(new_source, encoding="utf-8")
                 print(f"  Removed {server_cls.__name__} from mcp_servers.py")
             else:
-                print(
-                    f"  Warning: {server_cls.__name__} not found in mcp_servers.py"
-                )
+                print(f"  Warning: {server_cls.__name__} not found in mcp_servers.py")
 
         # ── Remove tool classes from mcp_tools.py ────────────────────
         tools_file = project_path / app / "mcp_tools.py"

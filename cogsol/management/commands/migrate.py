@@ -1031,9 +1031,7 @@ class Command(BaseCommand):
             if ref_name in metadata_defs:
                 matches = [ref_name]
             else:
-                matches = [
-                    key for key in metadata_defs if key.rsplit("/", 1)[-1] == ref_name
-                ]
+                matches = [key for key in metadata_defs if key.rsplit("/", 1)[-1] == ref_name]
             if not matches:
                 raise CogSolAPIError(
                     f"Filter '{ref_name}' on retrieval tool '{tool_name}' does not match "

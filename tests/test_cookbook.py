@@ -447,7 +447,9 @@ class TestFetchCookbookDirectory:
             _mock_urlopen(fresh),
             mock.patch("cogsol.core.cookbook.CACHE_DIR", tmp_path),
         ):
-            with pytest.raises(CookbookError, match=r"'templates/demo' not found in owner/repo@main"):
+            with pytest.raises(
+                CookbookError, match=r"'templates/demo' not found in owner/repo@main"
+            ):
                 fetch_cookbook_directory("templates", "demo", ref="main", repo="owner/repo")
 
 

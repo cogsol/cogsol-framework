@@ -197,9 +197,7 @@ def _start_oauth_authorization(
     auth_payload = client.get_mcp_oauth_authorization_url(server_id) or {}
     url = auth_payload.get("authorization_url")
     if not url:
-        raise CogSolAPIError(
-            f"OAuth authorization URL could not be generated for '{server_name}'."
-        )
+        raise CogSolAPIError(f"OAuth authorization URL could not be generated for '{server_name}'.")
     if not webbrowser.open(str(url), new=1, autoraise=True):
         print(f"  Open this URL manually: {url}")
     if not _wait_for_oauth_connected(
@@ -237,6 +235,7 @@ class Command(BaseCommand):
     ) -> dict[str, Any] | None:
         def norm(s: Any) -> str:
             return re.sub(r"\s+", " ", str(s or "")).strip().casefold()
+
         try:
             payload = client.list_mcp_servers()
             results = payload if isinstance(payload, list) else (payload or {}).get("results", [])
@@ -301,9 +300,7 @@ class Command(BaseCommand):
 
         remote = self._find_remote_server(
             client=client, server_name=old_server_name, server_url=old_server_url
-        ) or self._find_remote_server(
-            client=client, server_name=server_name, server_url=server_url
-        )
+        ) or self._find_remote_server(client=client, server_name=server_name, server_url=server_url)
         if not remote or not remote.get("id"):
             print("  Server not found in Cognitive; cannot discover tools via API.")
             return []
@@ -511,9 +508,7 @@ class Command(BaseCommand):
         current_oauth_client_id = env_vars.get(
             _to_env_key(f"{old_server_name}_OAUTH_CLIENT_ID"), ""
         )
-        current_oauth_scopes = env_vars.get(
-            _to_env_key(f"{old_server_name}_OAUTH_SCOPES"), ""
-        )
+        current_oauth_scopes = env_vars.get(_to_env_key(f"{old_server_name}_OAUTH_SCOPES"), "")
 
         # ── Step 1: Server details ────────────────────────────────────
         print(f"\n=== Step 1: Edit Server Configuration (current name: {old_server_name}) ===\n")
@@ -522,9 +517,7 @@ class Command(BaseCommand):
         if not server_name:
             print("A server name is required.")
             return 1
-        server_description = _ask(
-            "Description", getattr(server_cls, "description", "") or ""
-        )
+        server_description = _ask("Description", getattr(server_cls, "description", "") or "")
         server_url = _ask("Server URL", old_url)
         if not server_url:
             print("A server URL is required.")
@@ -563,7 +556,9 @@ class Command(BaseCommand):
 
             print("Available header keys:")
             for i, key in enumerate(HEADER_KEYS, 1):
-                current_marker = f"  ← {current_headers[key][:4]}***" if key in current_headers else ""
+                current_marker = (
+                    f"  ← {current_headers[key][:4]}***" if key in current_headers else ""
+                )
                 print(f"  {i}. {key}{current_marker}")
             print("  0. Done adding headers")
             print()
@@ -638,8 +633,7 @@ class Command(BaseCommand):
                 for tn, tc in all_tools.items()
                 if (
                     getattr(tc, "server", None) is server_cls
-                    or getattr(getattr(tc, "server", None), "__name__", None)
-                    == server_cls.__name__
+                    or getattr(getattr(tc, "server", None), "__name__", None) == server_cls.__name__
                 )
             }
 
@@ -825,8 +819,7 @@ class Command(BaseCommand):
                 for tc in all_tools_classes.values():
                     if (
                         getattr(tc, "server", None) is server_cls
-                        or getattr(getattr(tc, "server", None), "__name__", None)
-                        == old_cls_name
+                        or getattr(getattr(tc, "server", None), "__name__", None) == old_cls_name
                     ):
                         source, _ = _remove_class_from_source(source, tc.__name__)
 
@@ -872,9 +865,7 @@ class Command(BaseCommand):
             print("  .env already up-to-date.")
 
         # -- Publish to Cognitive --
-        print(
-            "\nPublishing updated MCP server/tools to Cognitive..."
-        )
+        print("\nPublishing updated MCP server/tools to Cognitive...")
         try:
             self._publish_update(
                 server_name=server_name,

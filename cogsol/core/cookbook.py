@@ -247,9 +247,7 @@ def fetch_cookbook_directory(
         # a refresh cannot change the outcome.
         if _is_sha(ref) or "not found" not in str(exc):
             raise
-        tarball_path = _download_tarball(
-            repo, ref, github_token=github_token, force_refresh=True
-        )
+        tarball_path = _download_tarball(repo, ref, github_token=github_token, force_refresh=True)
         try:
             return _extract_subdirectory(tarball_path, prefix)
         except CookbookError as exc2:

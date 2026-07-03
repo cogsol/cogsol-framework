@@ -612,7 +612,10 @@ class {class_name}(BaseAgent):
                                 server_ref_int = int(server_ref) if server_ref is not None else None
                             except (TypeError, ValueError):
                                 server_ref_int = None
-                            if server_ref_int is not None and server_ref_int not in mcp_servers_cache:
+                            if (
+                                server_ref_int is not None
+                                and server_ref_int not in mcp_servers_cache
+                            ):
                                 try:
                                     mcp_servers_cache[server_ref_int] = client.get_mcp_server(
                                         server_ref_int
@@ -736,17 +739,14 @@ class {class_name}(BaseAgent):
                 for mt in s_tools:
                     tool_cls_name = _mcp_tool_class_name_from_data(mt)
                     if not _has_class_def(existing_tools, tool_cls_name):
-                        tool_block = "\n\n" + _mcp_tool_class_from_api(mt, srv_cls_name).strip() + "\n"
-                        existing_tools = existing_tools.rstrip() + tool_block
-                        import_messages.append(
-                            f"MCP tool: {tool_cls_name} -> {mcp_tools_file}"
+                        tool_block = (
+                            "\n\n" + _mcp_tool_class_from_api(mt, srv_cls_name).strip() + "\n"
                         )
+                        existing_tools = existing_tools.rstrip() + tool_block
+                        import_messages.append(f"MCP tool: {tool_cls_name} -> {mcp_tools_file}")
                 _write_file(mcp_tools_file, existing_tools)
             else:
-                header = (
-                    "from cogsol.tools import BaseMCPTool\n\n"
-                    f"{import_line}\n"
-                )
+                header = "from cogsol.tools import BaseMCPTool\n\n" f"{import_line}\n"
                 blocks = "\n\n".join(
                     _mcp_tool_class_from_api(mt, srv_cls_name).strip() for mt in s_tools
                 )
@@ -769,7 +769,9 @@ class {class_name}(BaseAgent):
                 for ln in env_lines
                 if "=" in ln and not ln.strip().startswith("#")
             }
-            new_vars = {k: v for k, v in env_placeholders_needed.items() if k not in existing_env_keys}
+            new_vars = {
+                k: v for k, v in env_placeholders_needed.items() if k not in existing_env_keys
+            }
             if new_vars:
                 env_lines.append("")
                 env_lines.append("# MCP credentials (imported - fill in values)")

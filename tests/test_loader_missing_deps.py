@@ -22,11 +22,15 @@ def _make_project(tools_source: str) -> Path:
 
 def test_collects_definitions_when_tools_import_missing_package(capsys):
     """A module-level import of a package that only exists in Cognitive
-    (e.g. django) must not break definition collection."""
+    (e.g. django) must not break definition collection.
+
+    Uses a package name guaranteed to be missing so the test does not depend
+    on which packages happen to be installed in the environment.
+    """
     project = _make_project(
         "from cogsol.tools import BaseTool\n"
-        "from django.utils import timezone\n"
-        "import django.conf\n"
+        "from cognitive_only_pkg_xyz.utils import timezone\n"
+        "import cognitive_only_pkg_xyz.conf\n"
         "\n"
         "class ServerTimeTool(BaseTool):\n"
         "    description = 'Returns server time'\n"
@@ -39,7 +43,7 @@ def test_collects_definitions_when_tools_import_missing_package(capsys):
 
     assert "ServerTime" in definitions["tools"]
     out = capsys.readouterr().out
-    assert "django" in out
+    assert "cognitive_only_pkg_xyz" in out
     assert "stubbed" in out.lower()
 
 
