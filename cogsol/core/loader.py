@@ -107,10 +107,10 @@ class _StubValue:
     def __init__(self, name: str) -> None:
         self._stub_name = name
 
-    def __getattr__(self, item: str) -> "_StubValue":
+    def __getattr__(self, item: str) -> _StubValue:
         return _StubValue(f"{self._stub_name}.{item}")
 
-    def __call__(self, *args: Any, **kwargs: Any) -> "_StubValue":
+    def __call__(self, *args: Any, **kwargs: Any) -> _StubValue:
         return _StubValue(f"{self._stub_name}()")
 
     def __repr__(self) -> str:

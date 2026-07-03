@@ -28,7 +28,6 @@ import os
 import re
 import time
 import webbrowser
-from getpass import getpass
 from pathlib import Path
 from typing import Any
 
@@ -49,7 +48,6 @@ from cogsol.management.commands.addmcptools import (
     _py_str,
     _to_env_key,
 )
-
 
 # ---------------------------------------------------------------------------
 # File-manipulation helpers
@@ -237,7 +235,8 @@ class Command(BaseCommand):
         server_name: str,
         server_url: str,
     ) -> dict[str, Any] | None:
-        norm = lambda s: re.sub(r"\s+", " ", str(s or "")).strip().casefold()
+        def norm(s: Any) -> str:
+            return re.sub(r"\s+", " ", str(s or "")).strip().casefold()
         try:
             payload = client.list_mcp_servers()
             results = payload if isinstance(payload, list) else (payload or {}).get("results", [])
@@ -676,7 +675,6 @@ class Command(BaseCommand):
         # Derive new class name from (possibly new) server name.
         cls_base = re.sub(r"[^a-zA-Z0-9]+", " ", server_name).title().replace(" ", "")
         new_cls_name = f"{cls_base}MCPServer"
-        new_env_prefix = _to_env_key(server_name) + "_"
 
         # Build env vars for new credentials.
         env_new_vars: dict[str, str] = {}
@@ -824,7 +822,7 @@ class Command(BaseCommand):
             if not keep_existing_tools:
                 # Remove tool classes belonging to the old server.
                 all_tools_classes: dict[str, Any] = classes.get("mcp_tools", {})
-                for tn, tc in all_tools_classes.items():
+                for tc in all_tools_classes.values():
                     if (
                         getattr(tc, "server", None) is server_cls
                         or getattr(getattr(tc, "server", None), "__name__", None)
@@ -847,10 +845,10 @@ class Command(BaseCommand):
                     source = source.rstrip() + cls_block
 
             tools_file.write_text(source, encoding="utf-8")
-            print(f"  Updated mcp_tools.py")
+            print("  Updated mcp_tools.py")
         elif tool_classes:
             tools_file.write_text(tools_code, encoding="utf-8")
-            print(f"  Created mcp_tools.py")
+            print("  Created mcp_tools.py")
 
         # -- Update .env --
         # If the server name changed, remove all old prefix vars and write new ones.

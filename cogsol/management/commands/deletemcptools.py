@@ -18,7 +18,6 @@ from __future__ import annotations
 import ast
 import json
 import os
-import re
 from pathlib import Path
 from typing import Any
 
@@ -193,7 +192,7 @@ class Command(BaseCommand):
         }
 
         # ── Summary & confirmation ────────────────────────────────────
-        print(f"\nWill delete:")
+        print("\nWill delete:")
         print(f"  Server : {server_real_name}  (class: {server_cls.__name__})")
         if server_tools:
             tool_list = ", ".join(sorted(server_tools.keys()))
@@ -263,7 +262,7 @@ class Command(BaseCommand):
         tools_file = project_path / app / "mcp_tools.py"
         if tools_file.exists() and server_tools:
             source = tools_file.read_text(encoding="utf-8")
-            for tool_name, tool_cls in server_tools.items():
+            for tool_cls in server_tools.values():
                 new_source, removed = _remove_class_from_source(source, tool_cls.__name__)
                 if removed:
                     source = new_source
