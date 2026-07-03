@@ -136,7 +136,7 @@ class _MissingDependencyStubber(importlib.abc.MetaPathFinder, importlib.abc.Load
 
     def _is_stubbable(self, fullname: str) -> bool:
         top = fullname.split(".")[0]
-        stdlib_names = getattr(sys, "stdlib_module_names", frozenset())
+        stdlib_names: frozenset[str] = getattr(sys, "stdlib_module_names", frozenset())
         if top == "cogsol" or top in stdlib_names:
             return False
         # Never stub project-local modules — a typo there is a real error.
