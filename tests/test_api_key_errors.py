@@ -5,10 +5,12 @@ Tests for credential-related error handling and fail-fast checks.
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+from cogsol.core import credentials as credentials_mod
 from cogsol.core.api import CogSolAPIError, CogSolClient
 from cogsol.core.credentials import CREDENTIALS_NOT_CONFIGURED_MESSAGE
 
@@ -29,13 +31,19 @@ def _bare_client() -> CogSolClient:
 
 
 def _clear_credentials_env(monkeypatch) -> None:
-    for env_var in ("COGSOL_API_KEY", "COGSOL_AUTH_CLIENT_ID", "COGSOL_AUTH_SECRET"):
+    for env_var in (
+        "COGSOL_API_KEY",
+        "COGSOL_AUTH_CLIENT_ID",
+        "COGSOL_AUTH_SECRET",
+        "COGSOL_ENV",
+        "cogsol_env",
+    ):
         monkeypatch.delenv(env_var, raising=False)
 
 
 def _isolate_credentials_store(monkeypatch, tmp_path) -> None:
-    # Force credentials.json lookups into the test temp directory.
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+    creds_path = Path(tmp_path) / ".config" / "cogsol" / "credentials.json"
+    monkeypatch.setattr(credentials_mod, "get_credentials_path", lambda: creds_path)
 
 
 # ---------------------------------------------------------------------------
