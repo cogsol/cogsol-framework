@@ -38,22 +38,29 @@ The main client class for API communication.
 
 ```python
 from dataclasses import dataclass
-from typing import Any, Optional
 
 @dataclass
 class CogSolClient:
     base_url: str
-    token: Optional[str] = None
-    content_base_url: Optional[str] = None
+    api_key: str | None = None
+    bearer_token: str | None = None
+    bearer_token_expires_at: float | None = None
+    content_base_url: str | None = None
 ```
 
 ### Constructor Parameters
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `base_url` | `str` | Yes | Base URL for the Cognitive API (e.g., `https://apis-imp.cogsol.ai/cognitive`) |
-| `token` | `str` | No | API authentication token |
-| `content_base_url` | `str` | No | Base URL for Content API (defaults to `base_url` if not set) |
+| `base_url` | `str` | No | Base URL for the Cognitive API. Defaults to the configured environment's Cognitive API URL if omitted. |
+| `api_key` | `str` | No | Tenant API key, sent as the `x-api-key` header. Defaults to the `COGSOL_API_KEY` environment variable if omitted. |
+| `content_base_url` | `str` | No | Base URL for Content API (defaults to the configured Content API URL if not set) |
+
+`bearer_token`/`bearer_token_expires_at` are not meant to be passed in — the client manages them internally (see OAuth below).
+
+#### OAuth / Bearer Authentication
+
+If `COGSOL_AUTH_CLIENT_ID` is set in the environment, the client automatically acquires and refreshes an OAuth access token (via MSAL, using `COGSOL_AUTH_CLIENT_ID`/`COGSOL_AUTH_SECRET`) on construction, and sends it as an `Authorization: Bearer` header alongside the `x-api-key` header. Token expiry is read from the JWT and the token is refreshed automatically on 401 responses.
 
 ### Basic Usage
 
@@ -66,7 +73,7 @@ client = CogSolClient(base_url="https://apis-imp.cogsol.ai/cognitive")
 # With authentication and separate Content API
 client = CogSolClient(
     base_url="https://apis-imp.cogsol.ai/cognitive",
-    token="sk-your-api-key",
+    api_key="sk-your-api-key",
     content_base_url="https://apis-imp.cogsol.ai/content"
 )
 ```
@@ -496,6 +503,121 @@ def delete_retrieval_tool(self, tool_id: int) -> None
 
 ---
 
+## MCP Servers & Tools
+
+Manage MCP (Model Context Protocol) server connections and their tools, used by the `addmcptools`/`editmcptools`/`deletemcptools` CLI commands.
+
+### list_mcp_servers()
+
+List all MCP servers.
+
+```python
+def list_mcp_servers(self) -> Any
+```
+
+### create_mcp_server()
+
+Create an MCP server.
+
+```python
+def create_mcp_server(self, payload: dict[str, Any]) -> int
+```
+
+### upsert_mcp_server()
+
+Create or update an MCP server.
+
+```python
+def upsert_mcp_server(self, *, remote_id: Optional[int], payload: dict[str, Any]) -> int
+```
+
+#### Example
+
+```python
+server_id = client.upsert_mcp_server(
+    remote_id=None,
+    payload={
+        "name": "docs-server",
+        "description": "Internal docs MCP server",
+        "url": "https://mcp.example.com",
+        "auth_type": "headers",
+        "headers": {"Authorization": "Bearer ..."},
+    }
+)
+```
+
+### get_mcp_server()
+
+Retrieve an MCP server by ID.
+
+```python
+def get_mcp_server(self, server_id: int) -> Any
+```
+
+### delete_mcp_server()
+
+Delete an MCP server by ID.
+
+```python
+def delete_mcp_server(self, server_id: int) -> None
+```
+
+### discover_mcp_oauth()
+
+Trigger OAuth metadata discovery for an MCP server (used when `auth_type="oauth2"`).
+
+```python
+def discover_mcp_oauth(self, server_id: int) -> Any
+```
+
+### get_mcp_oauth_authorization_url()
+
+Get the URL the user must open in a browser to complete OAuth authorization for a server.
+
+```python
+def get_mcp_oauth_authorization_url(self, server_id: int) -> Any
+```
+
+### list_mcp_server_tools()
+
+List the tools currently configured/synced on an MCP server.
+
+```python
+def list_mcp_server_tools(self, server_id: int) -> Any
+```
+
+### sync_mcp_server_tools()
+
+Reconcile the set of enabled tools on an MCP server.
+
+```python
+def sync_mcp_server_tools(self, server_id: int, selected_tools: list[str]) -> Any
+```
+
+#### Example
+
+```python
+client.sync_mcp_server_tools(server_id, ["search_docs", "get_ticket"])
+```
+
+### get_mcp_tool()
+
+Retrieve an MCP tool by ID.
+
+```python
+def get_mcp_tool(self, tool_id: int) -> Any
+```
+
+### delete_mcp_tool()
+
+Delete an MCP tool by ID.
+
+```python
+def delete_mcp_tool(self, tool_id: int) -> None
+```
+
+---
+
 ## Chat Operations
 
 ### create_chat()
@@ -595,7 +717,7 @@ class CogSolAPIError(RuntimeError):
 ```python
 from cogsol.core.api import CogSolClient, CogSolAPIError
 
-client = CogSolClient(base_url="https://apis-imp.cogsol.ai/cognitive", token="...")
+client = CogSolClient(base_url="https://apis-imp.cogsol.ai/cognitive", api_key="...")
 
 try:
     assistant = client.get_assistant(9999)
@@ -930,6 +1052,64 @@ def update_metadata_config(self, config_id: int, payload: dict[str, Any]) -> Any
 
 ---
 
+### Ingestion Config Operations
+
+Manage reusable ingestion configurations (used by the `ingest` command's `--ingestion-config` option).
+
+#### list_ingestion_configs()
+
+List all ingestion configurations.
+
+```python
+def list_ingestion_configs(self) -> Any
+```
+
+#### get_ingestion_config()
+
+Retrieve an ingestion configuration by ID.
+
+```python
+def get_ingestion_config(self, config_id: int) -> Any
+```
+
+#### upsert_ingestion_config()
+
+Create or update an ingestion configuration.
+
+```python
+def upsert_ingestion_config(
+    self,
+    *,
+    remote_id: Optional[int],
+    payload: dict[str, Any]
+) -> int
+```
+
+##### Example
+
+```python
+config_id = client.upsert_ingestion_config(
+    remote_id=None,
+    payload={
+        "name": "high_quality",
+        "pdf_parsing_mode": "ocr",
+        "chunking_mode": "AGENTIC_SPLITTER",
+        "max_size_block": 2000,
+        "chunk_overlap": 100,
+    }
+)
+```
+
+#### delete_ingestion_config()
+
+Delete an ingestion configuration by ID.
+
+```python
+def delete_ingestion_config(self, config_id: int) -> None
+```
+
+---
+
 ## Usage Examples
 
 ### Complete Workflow
@@ -940,7 +1120,7 @@ from cogsol.core.api import CogSolClient
 # Initialize client
 client = CogSolClient(
     base_url="https://apis-imp.cogsol.ai/cognitive",
-    token="sk-your-token"
+    api_key="sk-your-token"
 )
 
 # Create a tool
@@ -1127,24 +1307,27 @@ assistant_id = client.upsert_assistant(
 
 ### _url()
 
-Build full URL from path.
+Build full URL from path. Uses `content_base_url` instead of `base_url` when `use_content_api=True`.
 
 ```python
-def _url(self, path: str) -> str:
+def _url(self, path: str, use_content_api: bool = False) -> str:
     if path.startswith("http://") or path.startswith("https://"):
         return path
-    return f"{self.base_url.rstrip('/')}/{path.lstrip('/')}"
+    base = self.content_base_url if use_content_api and self.content_base_url else self.base_url
+    return f"{base.rstrip('/')}/{path.lstrip('/')}"
 ```
 
 ### _headers()
 
-Build request headers.
+Build request headers. Sends `x-api-key` (tenant identity) and, when an OAuth bearer token has been acquired, `Authorization: Bearer` (see OAuth / Bearer Authentication above) together on the same request.
 
 ```python
-def _headers(self) -> dict[str, str]:
-    headers = {"Content-Type": "application/json"}
-    if self.token:
-        headers["x-api-key"] = f"{self.token}"
+def _headers(self, content_type: str) -> dict[str, str]:
+    headers = {"Content-Type": content_type}
+    if self.api_key:
+        headers["x-api-key"] = f"{self.api_key}"
+    if self.bearer_token:
+        headers["Authorization"] = f"Bearer {self.bearer_token}"
     return headers
 ```
 

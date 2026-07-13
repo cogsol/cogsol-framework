@@ -848,29 +848,7 @@ echo ".env" >> .gitignore
 
 ## Troubleshooting
 
-### "Could not resolve agent"
-
-Run `migrate` first to sync your agents with the API.
-
-### "Error while importing definitions"
-
-Check for Python syntax errors:
-
-```bash
-python -c "from agents.customersupport.agent import *"
-```
-
-### "Credentials are not configured. Run cogsol-admin credentials-setup first."
-
-Configure credentials with:
-
-```bash
-cogsol-admin credentials-setup
-```
-
-### "API error: 401 Unauthorized"
-
-Verify that your configured credentials are correct, not expired, and belong to the tenant you are targeting. Project `.env` values override user-level credentials.
+See [docs/troubleshooting.md](troubleshooting.md) for common errors and debug tips.
 
 ---
 
