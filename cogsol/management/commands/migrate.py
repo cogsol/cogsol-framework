@@ -1069,6 +1069,8 @@ class Command(BaseCommand):
             retrieval_key = value
             if isinstance(value, type) and issubclass(value, BaseRetrieval):
                 retrieval_key = getattr(value, "name", None) or value.__name__
+            elif isinstance(value, BaseRetrieval):
+                retrieval_key = getattr(value, "name", None) or type(value).__name__
             elif hasattr(value, "__name__"):
                 retrieval_key = getattr(value, "name", None) or value.__name__
             try:
