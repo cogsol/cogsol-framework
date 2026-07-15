@@ -47,7 +47,7 @@ cd cogsol-framework
 3. Add the upstream remote:
 
 ```bash
-git remote add upstream https://github.com/Pyxis-Cognitive-Solutions/cogsol-framework.git
+git remote add upstream https://github.com/cogsol/cogsol-framework.git
 ```
 
 ---

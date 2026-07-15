@@ -9,13 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.3.0] - 2026-07-15
+
 ### Added
-- `cogsol-admin startproject` can now scaffold projects from CogSol Cookbook templates and examples via `--from-template` / `--from-example`, with `--list-templates` / `--list-examples` to browse available entries. Supports custom cookbook repositories (`--cookbook-repo`) and private repos (`--github-token`).
+- MCP server and tool support through `BaseMCPServer`, `BaseMCPTool`, the `addmcptools` command, API client methods, and migration operations. MCP servers support no authentication, header authentication, and OAuth 2.1.
+- `cogsol-admin credentials-setup` and `cogsol-admin logout` commands for configuring and clearing tenant credentials stored in the platform-appropriate user configuration directory.
+- `cogsol-admin startproject` can now scaffold projects from CogSol Cookbook templates and examples via `--from-template` / `--from-example`, with `--list-templates` / `--list-examples` to browse available entries. Supports overwriting conflicts (`--force`), pinning a branch, tag, or commit (`--ref`), custom cookbook repositories (`--cookbook-repo`), and private repositories (`--github-token`).
 - `BaseRetrievalTool.filters`: searches can now declare metadata filters (by metadata config name, `topic/name`, or `BaseMetadataConfig` subclass). `migrate` resolves them to Cognitive filter definitions (`metadata_config_id`, type, possible values, format) and assigns them to the search.
 - `editmcptools` and `deletemcptools` commands for editing/removing MCP servers and their tools (updates classes, `.env` vars, and Cognitive without duplications).
 - `importagent` now also imports MCP servers/tools, topic metadata configs (`data/<topic>/metadata.py`), and search filters (collapsing date filter triplets into a single metadata reference).
-
 - `BaseAgent.Meta.alias`: assistant alias shown in the chat UI (Cognitive `info` field). `startagent` template now documents all personalization Meta fields.
+- `BaseAgent.reasoning` and `BaseAgent.websearch` flags, mapped to the Cognitive `reasoning_available` and `websearch_available` fields.
+
+### Changed
+- Authenticated CLI commands now load credentials from the project `.env` and then the user-level credential store, and fail fast with setup guidance when required credentials are missing.
+- Default Cognitive and Content API URLs now use the authenticated CogSol endpoints instead of falling back to legacy unauthenticated endpoints.
+- `credentials-setup` now validates connectivity with both Cognitive and Content APIs after saving credentials and provides hints for common authentication and server errors.
+- MCP server updates now use partial `PATCH` requests so omitted fields, including existing secrets, remain unchanged.
 
 ### Fixed
 - `startproject --from-template/--from-example` no longer fails for entries pushed to the cookbook repo after the tarball was cached: on "not found" the cache is refreshed once and the fetch retried (branch/tag refs only — SHA refs are immutable). The error message now includes `repo@ref` and lists the available entries of that kind.
@@ -24,6 +36,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `importagent` now imports the assistant's personalization (alias/`info` and colors) into the generated `Meta`, accepting both camelCase and legacy snake_case color keys.
 - `migrate` no longer wipes filters assigned to a search in the portal: the retrieval tool payload now always includes the `filters` resolved from the class definition.
 - `importagent` handles MCP `server` references returned as strings or nested dicts, and no longer skips generating classes when the template file contains commented-out examples with the same class name.
+- OAuth client-credentials authentication now builds the scope from the environment-specific application ID instead of the client ID.
+- `importagent` now preserves the assistant's `initial_message`, `forced_termination_message`, and `no_information_message` fields.
+- Generated `ProductDocsRetrieval` examples and project scaffolds now reference the `ProductDocsTopic` class instead of using an invalid string topic value.
+- Tool script generation no longer drops the first import or statement from `run()` methods decorated with `@tool_params`.
+- Re-running `addmcptools` without entering new header values no longer overwrites secrets stored in Azure Key Vault with empty values.
+- MCP tool IDs are now resolved reliably from the different backend response shapes and assigned to assistants during migration.
+- Retrieval tools now resolve migrated retrieval IDs when their `retrieval` field contains a `BaseRetrieval` instance as well as when it contains a class.
+- Missing-credential errors in `chat`, `importagent`, `migrate`, and `CogSolClient` now identify the required settings and direct users to the onboarding flow.
+
+### Documentation
+- Clarified the distinction between script tools and retrieval tools, the end-to-end retrieval workflow, and the requirement to explicitly register both kinds of tools in an agent's `tools` list.
+- Added documentation for MCP server lifecycle commands, MCP API client operations, and a dedicated troubleshooting guide.
+- Updated credential onboarding, project-level credential overrides, virtual-environment setup, and PyPI installation instructions.
+- Added nested-topic ingestion examples and corrected ingest file paths to use topic-aligned `data/<topic-path>/` locations.
 
 ---
 
@@ -53,7 +79,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 - Environment variable and authentication docs updated to use `COGSOL_API_KEY` and optional Azure AD B2C credentials.
 - Removed outdated "no external dependencies" statements from README.
-- Added nested-topic ingestion examples and corrected ingest file paths to use topic-aligned `data/<topic-path>/` locations in docs.
 - Clarified in README topic examples that `documentation` is only a sample topic name and not required.
 - Retrieval-tool examples now instantiate retrieval definitions (e.g., `ProductDocsRetrieval()`) to avoid runtime confusion from class references.
 - Setup guides now explicitly document creating and activating a local `.venv` before installing dependencies.
@@ -184,6 +209,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | Version | Date | Description |
 |---------|------|-------------|
 | Unreleased | - | - |
+| 0.3.0 | 2026-07-15 | MCP integration, persistent CLI credentials, Cookbook scaffolding, retrieval filters, and import/migration improvements |
 | 0.2.1 | 2026-03-11 | Auth updates, migration robustness fixes, and documentation improvements |
 | 0.2.0 | 2026-01-26 | Content API integration, data app, retrieval tools |
 | 0.1.0 | 2026-01-08 | Initial alpha release |
@@ -192,22 +218,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Migration Notes
 
-### From Earlier Versions
-
-This is the initial release. No migration from earlier versions is required.
-
-### Upgrading
-
-When upgrading between versions:
+### Upgrading from 0.2.1
 
 1. Update the package:
    ```bash
    pip install --upgrade cogsol
    ```
 
-2. Check for breaking changes in this changelog
+2. Configure tenant credentials in the user-level credential store:
+   ```bash
+   cogsol-admin credentials-setup
+   ```
+   Project `.env` values override stored credentials. In `COGSOL_ENV=local`, only `COGSOL_API_KEY` is required; other environments require `COGSOL_API_KEY`, `COGSOL_AUTH_CLIENT_ID`, and `COGSOL_AUTH_SECRET`.
 
-3. Run migrations if schema changed:
+3. Review and apply migrations so new MCP, retrieval-filter, metadata, and agent fields are synchronized:
    ```bash
    python manage.py makemigrations
    python manage.py migrate

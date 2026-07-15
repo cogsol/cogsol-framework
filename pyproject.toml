@@ -1,6 +1,6 @@
 [project]
 name = "cogsol-framework"
-version = "0.2.1"
+version = "0.3.0"
 description = "CogSol agent-first framework (alpha)"
 authors = [{ name = "Cognitive Solutions" }]
 readme = "README.md"
@@ -28,11 +28,11 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Pyxis-Cognitive-Solutions/cogsol-framework"
-Documentation = "https://github.com/Pyxis-Cognitive-Solutions/cogsol-framework#readme"
-Repository = "https://github.com/Pyxis-Cognitive-Solutions/cogsol-framework.git"
-Issues = "https://github.com/Pyxis-Cognitive-Solutions/cogsol-framework/issues"
-Changelog = "https://github.com/Pyxis-Cognitive-Solutions/cogsol-framework/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/cogsol/cogsol-framework"
+Documentation = "https://github.com/cogsol/cogsol-framework#readme"
+Repository = "https://github.com/cogsol/cogsol-framework.git"
+Issues = "https://github.com/cogsol/cogsol-framework/issues"
+Changelog = "https://github.com/cogsol/cogsol-framework/blob/main/CHANGELOG.md"
 [project.scripts]
 cogsol-admin = "cogsol.bin.cogsol_admin:main"
 

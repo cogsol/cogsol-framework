@@ -69,7 +69,7 @@ Welcome to the CogSol Framework documentation. This documentation provides compr
 
 ## Version
 
-This documentation is for CogSol Framework **v0.2.1**.
+This documentation is for CogSol Framework **v0.3.0**.
 
 ---
 
