@@ -52,6 +52,19 @@ def serialize_value(value: Any) -> Any:
     """
     from dataclasses import asdict, is_dataclass
 
+    if isinstance(value, _StubValue):
+        # A stub means the import behind this value never resolved.  Writing its
+        # repr() into a migration produces a file that cannot be parsed, so fail
+        # here with something actionable instead.
+        raise RuntimeError(
+            f"Cannot serialize '{value._stub_name}': the module it comes from could not "
+            "be imported, so a placeholder was used instead of the real object.\n"
+            "  If it is a project module, import it through its app "
+            "(e.g. 'from agents.mcp_tools import MyMCPTool' instead of 'from mcp_tools "
+            "import MyMCPTool').\n"
+            "  If it is a third-party package, install it in this environment."
+        )
+
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, Path):
@@ -140,9 +153,27 @@ class _MissingDependencyStubber(importlib.abc.MetaPathFinder, importlib.abc.Load
         if top == "cogsol" or top in stdlib_names:
             return False
         # Never stub project-local modules — a typo there is a real error.
-        if (self.project_path / top).exists() or (self.project_path / f"{top}.py").exists():
+        if self._is_project_local(top):
             return False
         return True
+
+    def _is_project_local(self, top: str) -> bool:
+        """True when ``top`` names a module that belongs to this project."""
+        if (self.project_path / top).exists() or (self.project_path / f"{top}.py").exists():
+            return True
+        # App packages hold modules that are only importable through their app
+        # (``agents.mcp_tools``).  Importing one unqualified (``mcp_tools``) is a
+        # mistake that must surface, not be stubbed into a placeholder value.
+        try:
+            app_dirs = [entry for entry in self.project_path.iterdir() if entry.is_dir()]
+        except OSError:
+            return False
+        for app_dir in app_dirs:
+            if app_dir.name.startswith(".") or app_dir.name.startswith("__"):
+                continue
+            if (app_dir / f"{top}.py").exists() or (app_dir / top).is_dir():
+                return True
+        return False
 
     def find_spec(self, fullname, path=None, target=None):
         if not self._is_stubbable(fullname):

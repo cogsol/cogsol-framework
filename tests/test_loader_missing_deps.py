@@ -79,3 +79,45 @@ def test_missing_project_module_still_raises():
 
     with pytest.raises(RuntimeError, match="agents.tools"):
         collect_definitions(project, "agents")
+
+
+def test_app_module_imported_without_its_app_raises():
+    """`from mcp_tools import X` (instead of `agents.mcp_tools`) must not be stubbed.
+
+    Stubbing it produced a placeholder object that was written verbatim into the
+    generated migration, yielding a file with a SyntaxError.
+    """
+    project = _make_project("from cogsol.tools import BaseTool\n")
+    agents = project / "agents"
+    (agents / "mcp_tools.py").write_text(
+        "from cogsol.tools import BaseMCPTool\n"
+        "\n"
+        "class SampleMCPTool(BaseMCPTool):\n"
+        "    name = 'sample'\n",
+        encoding="utf-8",
+    )
+    agent_dir = agents / "myagent"
+    agent_dir.mkdir()
+    (agent_dir / "__init__.py").write_text("", encoding="utf-8")
+    (agent_dir / "agent.py").write_text(
+        "from cogsol.agents import BaseAgent\n"
+        "from mcp_tools import SampleMCPTool\n"  # missing the `agents.` prefix
+        "\n"
+        "class MyAgent(BaseAgent):\n"
+        "    tools = [SampleMCPTool()]\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="mcp_tools"):
+        collect_definitions(project, "agents")
+
+
+def test_stub_values_are_never_serialized_into_migrations():
+    """A leaked stub must fail loudly rather than reach a migration file."""
+    from cogsol.core.loader import _StubValue, serialize_value
+
+    with pytest.raises(RuntimeError, match="could not be imported"):
+        serialize_value(_StubValue("some_pkg.Thing"))
+
+    with pytest.raises(RuntimeError, match="could not be imported"):
+        serialize_value([_StubValue("some_pkg.Thing")])

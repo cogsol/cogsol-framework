@@ -1,9 +1,58 @@
 """Tests for the addmcptools management command."""
 
 import ast
+import json
 
 from cogsol.core.api import CogSolAPIError
 from cogsol.management.commands import addmcptools
+
+
+class TestStoreServerRemoteId:
+    """The published server id must land in .state.json so migrate can delete it."""
+
+    def _state_file(self, tmp_path, payload):
+        state_path = tmp_path / "agents" / "migrations" / ".state.json"
+        state_path.parent.mkdir(parents=True)
+        state_path.write_text(json.dumps(payload), encoding="utf-8")
+        return state_path
+
+    def test_stores_the_id_without_touching_the_rest(self, tmp_path):
+        state_path = self._state_file(
+            tmp_path,
+            {
+                "state": {"mcp_servers": {"srv": {"fields": {"name": "srv"}}}},
+                "remote": {"agents": {"MyAgent": 265}, "mcp_servers": {}},
+            },
+        )
+
+        addmcptools._store_server_remote_id(tmp_path, "agents", "srv", 186)
+
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert state["remote"]["mcp_servers"] == {"srv": 186}
+        assert state["remote"]["agents"] == {"MyAgent": 265}
+        assert state["state"]["mcp_servers"]["srv"]["fields"]["name"] == "srv"
+
+    def test_overwrites_the_id_when_the_server_is_republished(self, tmp_path):
+        state_path = self._state_file(tmp_path, {"remote": {"mcp_servers": {"srv": 1}}})
+
+        addmcptools._store_server_remote_id(tmp_path, "agents", "srv", 186)
+
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert state["remote"]["mcp_servers"]["srv"] == 186
+
+    def test_missing_state_file_is_a_no_op(self, tmp_path):
+        addmcptools._store_server_remote_id(tmp_path, "agents", "srv", 186)
+
+        assert not (tmp_path / "agents" / "migrations" / ".state.json").exists()
+
+    def test_unparsable_state_file_is_left_alone(self, tmp_path):
+        state_path = tmp_path / "agents" / "migrations" / ".state.json"
+        state_path.parent.mkdir(parents=True)
+        state_path.write_text("{not json", encoding="utf-8")
+
+        addmcptools._store_server_remote_id(tmp_path, "agents", "srv", 186)
+
+        assert state_path.read_text(encoding="utf-8") == "{not json"
 
 
 class TestAddMCPToolsCodegen:
@@ -83,6 +132,62 @@ class TestAddMCPToolsCodegen:
         )
         assert "name = 'tool \"one\"'" in tools_source
         assert 'description = \'desc with "quotes" and triple """ markers\'' in tools_source
+
+    def test_handle_records_the_published_server_id(self, monkeypatch, tmp_path):
+        """End-to-end: the id printed by the API must survive in .state.json."""
+
+        class FakeMCPClient:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def initialize(self):
+                return True
+
+            def list_tools(self):
+                return [{"name": "ping", "description": "Ping."}]
+
+            def disconnect(self):
+                return None
+
+        class FakeCogSolClient:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def list_mcp_servers(self):
+                return []
+
+            def upsert_mcp_server(self, *, remote_id, payload):
+                return 186
+
+            def sync_mcp_server_tools(self, server_id, selected_tools):
+                return {"results": [{"id": 1, "name": n} for n in selected_tools]}
+
+        answers = {
+            "Server name": "atlassian 5",
+            "Description": "Atlassian.",
+            "Server URL (e.g. https://mcp.example.com/mcp)": "https://example.com/mcp",
+            "Select auth type": "1",  # none
+            "Selection": "all",
+        }
+
+        monkeypatch.setattr(addmcptools, "MCPClient", FakeMCPClient)
+        monkeypatch.setattr(addmcptools, "CogSolClient", FakeCogSolClient)
+        monkeypatch.setattr(addmcptools, "_ask", lambda p, default="": answers.get(p, default))
+        monkeypatch.setenv("COGSOL_API_BASE", "https://api.example.test")
+        monkeypatch.setenv("COGSOL_API_KEY", "test-api-key")
+        monkeypatch.setenv("COGSOL_AUTH_CLIENT_ID", "test-client-id")
+        monkeypatch.setenv("COGSOL_AUTH_SECRET", "test-client-secret")
+
+        (tmp_path / ".env").write_text("", encoding="utf-8")
+        state_path = tmp_path / "agents" / "migrations" / ".state.json"
+        state_path.parent.mkdir(parents=True)
+        state_path.write_text(json.dumps({"state": {}, "remote": {}}), encoding="utf-8")
+
+        result = addmcptools.Command().handle(project_path=tmp_path, app="agents")
+
+        assert result == 0
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert state["remote"]["mcp_servers"] == {"atlassian 5": 186}
 
 
 class TestAddMCPToolsOAuthAssisted:
@@ -317,13 +422,18 @@ class TestAddMCPToolsOAuthAssisted:
                 assert server_id == 173
                 return {"success": True}
 
-            def get_mcp_server(self, server_id):
-                calls.append("get_server")
+            def list_mcp_server_tools(self, server_id):
+                calls.append("list_tools")
                 assert server_id == 173
                 self.status_calls += 1
+                # The API has no oauth_status field: it answers 511 while the
+                # server still needs the user to authorize.
                 if self.status_calls == 1:
-                    return {"oauth_status": "disconnected"}
-                return {"oauth_status": "connected"}
+                    raise CogSolAPIError(
+                        '511 Network Authentication Required: {"mcp_oauth_required":true,'
+                        '"server_id":173,"server_name":"atlassian mcp server"}'
+                    )
+                return {"tools": [{"name": "ATLASSIANUSERINFO"}]}
 
             def get_mcp_oauth_authorization_url(self, server_id):
                 calls.append("authorize_url")
@@ -387,14 +497,13 @@ class TestAddMCPToolsOAuthAssisted:
                 assert server_id == 176
                 return {"success": True}
 
-            def get_mcp_server(self, server_id):
-                calls.append("get_server")
+            def list_mcp_server_tools(self, server_id):
+                calls.append("list_tools")
                 assert server_id == 176
                 self.status_calls += 1
-                # First check says connected; recovery path should still reauthorize after sync failure.
-                if self.status_calls == 1:
-                    return {"oauth_status": "connected"}
-                return {"oauth_status": "connected"}
+                # Already authorized; the recovery path should still reauthorize
+                # after the sync failure.
+                return {"tools": [{"name": "ATLASSIANUSERINFO"}]}
 
             def get_mcp_oauth_authorization_url(self, server_id):
                 calls.append("authorize_url")
@@ -459,9 +568,9 @@ class TestAddMCPToolsOAuthAssisted:
                 assert server_id == 176
                 return {"success": True}
 
-            def get_mcp_server(self, server_id):
+            def list_mcp_server_tools(self, server_id):
                 assert server_id == 176
-                return {"oauth_status": "connected"}
+                return {"tools": [{"name": "ATLASSIANUSERINFO"}]}
 
             def get_mcp_oauth_authorization_url(self, server_id):
                 calls.append("authorize_url")
@@ -493,6 +602,104 @@ class TestAddMCPToolsOAuthAssisted:
             pass
 
         assert "authorize_url" not in calls
+
+
+class TestAddMCPToolsRemoteServerIdentity:
+    """A remote server is identified by name — never by URL alone (CSP-1837)."""
+
+    def _client_with(self, servers):
+        class FakeCogSolClient:
+            def list_mcp_servers(self):
+                return servers
+
+        return FakeCogSolClient()
+
+    def test_same_url_different_name_is_not_adopted(self):
+        client = self._client_with(
+            [{"id": 177, "name": "Atlassian", "url": "https://mcp.atlassian.com/v1/mcp"}]
+        )
+        found = addmcptools.Command()._find_remote_server(
+            client=client,
+            server_name="mcp atlassian 3",
+            server_url="https://mcp.atlassian.com/v1/mcp",
+        )
+        # Adopting id=177 would rename it and reuse its OAuth client registration.
+        assert found is None
+
+    def test_same_name_is_adopted_even_when_url_changed(self):
+        client = self._client_with(
+            [{"id": 42, "name": "atlassian", "url": "https://mcp.atlassian.com/v1/mcp"}]
+        )
+        found = addmcptools.Command()._find_remote_server(
+            client=client,
+            server_name="Atlassian",
+            server_url="https://mcp.atlassian.com/v2/mcp",
+        )
+        assert found is not None and found["id"] == 42
+
+    def test_same_name_prefers_the_entry_matching_the_url(self):
+        client = self._client_with(
+            [
+                {"id": 1, "name": "shared", "url": "https://a.example/mcp"},
+                {"id": 2, "name": "shared", "url": "https://b.example/mcp"},
+            ]
+        )
+        found = addmcptools.Command()._find_remote_server(
+            client=client, server_name="shared", server_url="https://b.example/mcp"
+        )
+        assert found is not None and found["id"] == 2
+
+
+class TestAddMCPToolsOAuthWait:
+    """OAuth completion is detected through the tools endpoint, not oauth_status."""
+
+    def test_wait_returns_tools_once_authorization_completes(self, monkeypatch):
+        class FakeCogSolClient:
+            def __init__(self):
+                self.calls = 0
+
+            def list_mcp_server_tools(self, _server_id):
+                self.calls += 1
+                if self.calls < 3:
+                    raise CogSolAPIError(
+                        '511 Network Authentication Required: {"mcp_oauth_required":true}'
+                    )
+                return {"tools": [{"name": "ATLASSIANUSERINFO"}]}
+
+        monkeypatch.setattr(addmcptools.time, "sleep", lambda _s: None)
+        tools = addmcptools.Command()._wait_for_oauth_connected(
+            client=FakeCogSolClient(), server_id=1, timeout_seconds=30
+        )
+        assert tools == [{"name": "ATLASSIANUSERINFO"}]
+
+    def test_wait_times_out_while_authorization_stays_pending(self, monkeypatch):
+        class FakeCogSolClient:
+            def list_mcp_server_tools(self, _server_id):
+                raise CogSolAPIError(
+                    '511 Network Authentication Required: {"mcp_oauth_required":true}'
+                )
+
+        monkeypatch.setattr(addmcptools.time, "sleep", lambda _s: None)
+        result = addmcptools.Command()._wait_for_oauth_connected(
+            client=FakeCogSolClient(), server_id=1, timeout_seconds=0
+        )
+        assert result is None
+
+    def test_missing_oauth_status_field_does_not_block_detection(self, monkeypatch):
+        """A server detail payload without oauth_status must not be consulted at all."""
+
+        class FakeCogSolClient:
+            def get_mcp_server(self, _server_id):
+                raise AssertionError("oauth_status is not part of the API contract")
+
+            def list_mcp_server_tools(self, _server_id):
+                return {"tools": [{"name": "PING"}]}
+
+        monkeypatch.setattr(addmcptools.time, "sleep", lambda _s: None)
+        tools = addmcptools.Command()._wait_for_oauth_connected(
+            client=FakeCogSolClient(), server_id=1, timeout_seconds=5
+        )
+        assert tools == [{"name": "PING"}]
 
 
 class TestAddMCPToolsHeadersPayload:

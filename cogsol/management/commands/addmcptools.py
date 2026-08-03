@@ -23,6 +23,7 @@ sent write-only to the CogSol API, which stores it in Azure Key Vault.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
@@ -51,6 +52,22 @@ HEADER_KEYS = [
 AUTH_TYPES = ["none", "headers", "oauth2"]
 OAUTH_POLL_SECONDS_DEFAULT = 300
 OAUTH_POLL_INTERVAL_SECONDS = 2
+
+# The API exposes no ``oauth_status`` field — authorization state lives in
+# per-user token records and is only observable through the tools endpoint,
+# which answers 511 + ``mcp_oauth_required`` while the user still has to
+# authorize the server.
+OAUTH_PENDING_MARKERS = (
+    "mcp_oauth_required",
+    "network authentication required",
+    "oauth re-authorization required",
+)
+
+
+def _is_oauth_pending(exc: CogSolAPIError) -> bool:
+    """True when the API says the MCP server still needs user authorization."""
+    text = str(exc).lower()
+    return any(marker in text for marker in OAUTH_PENDING_MARKERS)
 
 
 def _ask(prompt: str, default: str = "") -> str:
@@ -98,6 +115,25 @@ def _oauth_config(client_id: str, scopes: str) -> dict[str, Any]:
     return cfg
 
 
+def _store_server_remote_id(project_path: Path, app: str, server_name: str, server_id: int) -> None:
+    """Record the server's Cognitive id in ``.state.json``.
+
+    MCP servers are published here, not by ``migrate``, so this is the only
+    chance to capture the id.  ``migrate`` needs it later to delete the server
+    when it is removed from the project.
+    """
+    state_path = project_path / app / "migrations" / ".state.json"
+    if not state_path.exists():
+        return
+    try:
+        state: dict[str, Any] = json.loads(state_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return
+
+    state.setdefault("remote", {}).setdefault("mcp_servers", {})[server_name] = server_id
+    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
 class Command(BaseCommand):
     help = "Interactively configure an MCP server and select tools."
 
@@ -139,43 +175,47 @@ class Command(BaseCommand):
         server_name_n = self._norm(server_name)
         server_url_n = self._norm(str(server_url).rstrip("/"))
 
-        exact = [
-            s
-            for s in servers
-            if self._norm(s.get("name")) == server_name_n
-            and self._norm(str(s.get("url", "")).rstrip("/")) == server_url_n
-        ]
-        if exact:
-            return exact[0]
-
+        # The name is part of a server's identity: never adopt a remote server
+        # just because the URL matches.  Several servers may legitimately share
+        # one MCP endpoint, and adopting one would silently rename it and reuse
+        # its OAuth client registration.
         name_match = [s for s in servers if self._norm(s.get("name")) == server_name_n]
-        if len(name_match) == 1:
-            return name_match[0]
+        if not name_match:
+            return None
 
+        # Same name on the same URL wins over a same-name server pointing elsewhere.
         url_match = [
-            s for s in servers if self._norm(str(s.get("url", "")).rstrip("/")) == server_url_n
+            s for s in name_match if self._norm(str(s.get("url", "")).rstrip("/")) == server_url_n
         ]
-        if len(url_match) == 1:
-            return url_match[0]
-
-        # If duplicates exist for the same URL, prefer oauth2 and most recently updated.
-        if len(url_match) > 1:
-            oauth_candidates = [s for s in url_match if self._norm(s.get("auth_type")) == "oauth2"]
-            candidates = oauth_candidates or url_match
-            candidates.sort(
-                key=lambda s: str(s.get("updated_at") or s.get("created_at") or ""),
-                reverse=True,
-            )
+        candidates = url_match or name_match
+        if len(candidates) == 1:
             return candidates[0]
 
-        if len(name_match) > 1:
-            name_match.sort(
-                key=lambda s: str(s.get("updated_at") or s.get("created_at") or ""),
-                reverse=True,
-            )
-            return name_match[0]
+        candidates.sort(
+            key=lambda s: str(s.get("updated_at") or s.get("created_at") or ""),
+            reverse=True,
+        )
+        return candidates[0]
 
-        return None
+    def _fetch_tools_if_authorized(
+        self,
+        *,
+        client: CogSolClient,
+        server_id: int,
+    ) -> list[dict[str, Any]] | None:
+        """Return the server's tools, or ``None`` while OAuth is still pending.
+
+        ``GET /mcp-servers/{id}/tools/`` connects to the MCP server using the
+        stored token, so a successful response is itself proof that
+        authorization completed — and it carries the tool list in the same
+        round trip.
+        """
+        try:
+            return self._extract_results(client.list_mcp_server_tools(server_id))
+        except CogSolAPIError as exc:
+            if _is_oauth_pending(exc):
+                return None
+            raise
 
     def _wait_for_oauth_connected(
         self,
@@ -183,19 +223,28 @@ class Command(BaseCommand):
         client: CogSolClient,
         server_id: int,
         timeout_seconds: int,
-    ) -> bool:
+    ) -> list[dict[str, Any]] | None:
+        """Poll until the server is authorized, returning its tools.
+
+        Returns ``None`` when the timeout elapses without authorization.
+        """
         start = time.time()
-        while time.time() - start < timeout_seconds:
+        last_error = ""
+        while True:
             try:
-                data = client.get_mcp_server(server_id) or {}
-                status = str(data.get("oauth_status", "")).lower()
-                if status == "connected":
-                    return True
-            except CogSolAPIError:
-                # Keep polling; callback might still be processing.
-                pass
+                tools = self._fetch_tools_if_authorized(client=client, server_id=server_id)
+            except CogSolAPIError as exc:
+                # Keep polling — the callback may still be in flight — but never
+                # swallow the reason silently.
+                if str(exc) != last_error:
+                    last_error = str(exc)
+                    print(f"  Still waiting; last API response: {exc}")
+                tools = None
+            if tools is not None:
+                return tools
+            if time.time() - start >= timeout_seconds:
+                return None
             time.sleep(OAUTH_POLL_INTERVAL_SECONDS)
-        return False
 
     def _is_oauth_reauthorization_error(self, exc: CogSolAPIError) -> bool:
         return "oauth re-authorization required" in str(exc).lower()
@@ -220,12 +269,12 @@ class Command(BaseCommand):
             print("  Could not auto-open browser. Open this URL manually:")
             print(f"  {authorization_url}")
 
-        connected = self._wait_for_oauth_connected(
+        tools = self._wait_for_oauth_connected(
             client=client,
             server_id=server_id,
             timeout_seconds=max(5, int(oauth_timeout)),
         )
-        if not connected:
+        if tools is None:
             raise CogSolAPIError(
                 "OAuth authorization did not complete within timeout. "
                 "Please finish OAuth in browser and retry addmcptools."
@@ -297,17 +346,15 @@ class Command(BaseCommand):
                 print(str(authorization_url))
 
             print(f"Waiting for OAuth completion (timeout: {oauth_timeout}s)...")
-            connected = self._wait_for_oauth_connected(
+            tools = self._wait_for_oauth_connected(
                 client=api_client,
                 server_id=server_id,
                 timeout_seconds=max(5, int(oauth_timeout)),
             )
-            if not connected:
+            if tools is None:
                 print("OAuth authorization timeout. You can retry addmcptools after authorizing.")
                 return []
 
-            tools_payload = api_client.list_mcp_server_tools(server_id)
-            tools = self._extract_results(tools_payload)
             if not tools:
                 print("OAuth connected, but no tools were returned by the MCP server.")
                 return []
@@ -341,7 +388,8 @@ class Command(BaseCommand):
         oauth_scopes: str,
         selected_tools: list[dict[str, Any]],
         oauth_timeout: int,
-    ) -> None:
+    ) -> int:
+        """Publish the server and its tools, returning the server's remote id."""
         api_base = get_cognitive_api_base_url()
         api_key = os.environ.get("COGSOL_API_KEY")
 
@@ -392,9 +440,12 @@ class Command(BaseCommand):
                 else:
                     raise
 
-            server_data = client.get_mcp_server(server_id) or {}
-            status = str(server_data.get("oauth_status", "")).lower()
-            if force_authorization or status != "connected":
+            already_authorized = (
+                False
+                if force_authorization
+                else self._fetch_tools_if_authorized(client=client, server_id=server_id) is not None
+            )
+            if not already_authorized:
                 print("  OAuth server is not connected yet. Starting authorization flow...")
                 self._start_oauth_authorization(
                     client=client,
@@ -406,7 +457,7 @@ class Command(BaseCommand):
         tool_names = [str(t.get("name")) for t in selected_tools if t.get("name")]
         if not tool_names:
             print("  No MCP tools selected to sync in Cognitive.")
-            return
+            return server_id
 
         try:
             client.sync_mcp_server_tools(server_id, tool_names)
@@ -426,6 +477,7 @@ class Command(BaseCommand):
             )
             client.sync_mcp_server_tools(server_id, tool_names)
         print(f"  Synced {len(tool_names)} MCP tool(s) in Cognitive.")
+        return server_id
 
     def handle(self, project_path: Path | None, **options: Any) -> int:  # noqa: C901
         assert project_path is not None, "project_path is required"
@@ -787,7 +839,7 @@ class Command(BaseCommand):
             "(this updates what appears in the portal immediately)..."
         )
         try:
-            self._publish_to_cognitive(
+            server_id = self._publish_to_cognitive(
                 server_name=server_name,
                 server_description=server_description,
                 server_url=server_url,
@@ -802,6 +854,8 @@ class Command(BaseCommand):
         except CogSolAPIError as exc:
             print(f"Failed to publish MCP catalog to Cognitive: {exc}")
             return 1
+
+        _store_server_remote_id(project_path, app, server_name, server_id)
 
         if auth_type == "oauth2" and oauth_client_secret:
             print(

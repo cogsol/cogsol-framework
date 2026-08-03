@@ -6,23 +6,25 @@ Workflow
 2.  User selects a server to remove.
 3.  All tool classes in ``agents/mcp_tools.py`` that reference that server
     are shown for confirmation.
-4.  On confirmation:
-    - Deletes the server from the CogSol API.
+4.  On confirmation, the project is updated:
     - Removes the server class from ``mcp_servers.py``.
     - Removes the associated tool classes from ``mcp_tools.py``.
+    - Removes references to those tools (and their imports) from every
+      ``agent.py``, so the project still imports afterwards.
     - Removes the related env vars from ``.env``.
+
+Nothing is deleted in Cognitive by this command.  The project is the source of
+truth, so the removal is published by ``makemigrations`` + ``migrate`` like any
+other change; the remote ids stay in ``.state.json`` until then.
 """
 
 from __future__ import annotations
 
 import ast
 import json
-import os
 from pathlib import Path
 from typing import Any
 
-from cogsol.core.api import CogSolAPIError, CogSolClient
-from cogsol.core.constants import get_cognitive_api_base_url
 from cogsol.core.loader import collect_classes
 from cogsol.management.base import BaseCommand
 from cogsol.management.commands.addmcptools import (
@@ -55,6 +57,122 @@ def _remove_class_from_source(source: str, class_name: str) -> tuple[str, bool]:
             return "".join(lines[:start] + lines[end:]), True
 
     return source, False
+
+
+def _element_class_name(node: ast.expr) -> str | None:
+    """Return the class name an element of a ``tools`` list refers to.
+
+    Handles both ``MyTool()`` and a bare ``MyTool``.
+    """
+    if isinstance(node, ast.Call):
+        node = node.func
+    if isinstance(node, ast.Name):
+        return node.id
+    return None
+
+
+def _span(source_lines: list[str], node: ast.expr | ast.stmt) -> tuple[int, int]:
+    """Return the ``(start, end)`` character offsets of a node."""
+    offsets = [0]
+    for line in source_lines:
+        offsets.append(offsets[-1] + len(line))
+    start = offsets[node.lineno - 1] + node.col_offset
+    end = offsets[(node.end_lineno or node.lineno) - 1] + (node.end_col_offset or 0)
+    return start, end
+
+
+def _remove_tool_references(source: str, class_names: set[str]) -> tuple[str, list[str]]:
+    """Drop the given tool classes from ``tools``/``pretools`` lists and imports.
+
+    Returns ``(new_source, removed_names)``.  Formatting of the surviving
+    entries is preserved: single-line lists stay on one line, multi-line lists
+    keep one entry per line.
+    """
+    if not class_names:
+        return source, []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return source, []
+
+    lines = source.splitlines(keepends=True)
+    removed: list[str] = []
+    # (start, end, replacement), applied back-to-front so offsets stay valid.
+    edits: list[tuple[int, int, str]] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.List):
+            targets = {t.id for t in node.targets if isinstance(t, ast.Name)}
+            if not targets & {"tools", "pretools"}:
+                continue
+
+            keep: list[str] = []
+            dropped: list[str] = []
+            for element in node.value.elts:
+                name = _element_class_name(element)
+                if name and name in class_names:
+                    dropped.append(name)
+                    continue
+                el_start, el_end = _span(lines, element)
+                keep.append(source[el_start:el_end])
+            if not dropped:
+                continue
+            removed.extend(dropped)
+
+            list_start, list_end = _span(lines, node.value)
+            original = source[list_start:list_end]
+            if not keep:
+                replacement = "[]"
+            elif "\n" in original:
+                indent = " " * (node.col_offset + 4)
+                body = "".join(f"{indent}{entry},\n" for entry in keep)
+                replacement = "[\n" + body + " " * node.col_offset + "]"
+            else:
+                replacement = "[" + ", ".join(keep) + "]"
+            edits.append((list_start, list_end, replacement))
+
+        elif isinstance(node, ast.ImportFrom) and (node.module or "").endswith("mcp_tools"):
+            surviving = [alias for alias in node.names if alias.name not in class_names]
+            if len(surviving) == len(node.names):
+                continue
+            start, end = _span(lines, node)
+            if surviving:
+                names = ", ".join(
+                    alias.name + (f" as {alias.asname}" if alias.asname else "")
+                    for alias in surviving
+                )
+                edits.append((start, end, f"from {node.module} import {names}"))
+            else:
+                # Drop the whole statement, including its trailing newline.
+                line_end = end
+                while line_end < len(source) and source[line_end] != "\n":
+                    line_end += 1
+                edits.append((start, min(line_end + 1, len(source)), ""))
+
+    if not edits:
+        return source, []
+
+    new_source = source
+    for start, end, replacement in sorted(edits, reverse=True):
+        new_source = new_source[:start] + replacement + new_source[end:]
+    return new_source, removed
+
+
+def _clean_agent_references(app_path: Path, class_names: set[str]) -> list[tuple[Path, list[str]]]:
+    """Remove references to the given tool classes from every agent module."""
+    candidates = sorted(app_path.glob("*/agent.py"))
+    flat_agent = app_path / "agent.py"
+    if flat_agent.exists():
+        candidates.append(flat_agent)
+
+    cleaned: list[tuple[Path, list[str]]] = []
+    for agent_file in candidates:
+        source = agent_file.read_text(encoding="utf-8")
+        new_source, removed = _remove_tool_references(source, class_names)
+        if removed:
+            agent_file.write_text(new_source, encoding="utf-8")
+            cleaned.append((agent_file, removed))
+    return cleaned
 
 
 def _find_server_env_prefix(server_name: str) -> str:
@@ -204,42 +322,9 @@ class Command(BaseCommand):
             print("Cancelled.")
             return 0
 
-        # ── Delete from CogSol API ────────────────────────────────────
-        api_base = get_cognitive_api_base_url()
-        api_key = os.environ.get("COGSOL_API_KEY")
-        if api_base:
-            client = CogSolClient(base_url=api_base, api_key=api_key)
-            # Find remote server by name (same approach as addmcptools)
-            try:
-                servers_remote = client.list_mcp_servers()
-                results = (
-                    servers_remote
-                    if isinstance(servers_remote, list)
-                    else (servers_remote or {}).get("results", [])
-                )
-                server_url = getattr(server_cls, "url", "") or ""
-                remote_entry = next(
-                    (
-                        s
-                        for s in results
-                        if isinstance(s, dict)
-                        and (
-                            str(s.get("name", "")).strip().casefold()
-                            == server_real_name.strip().casefold()
-                            or str(s.get("url", "")).rstrip("/") == str(server_url).rstrip("/")
-                        )
-                    ),
-                    None,
-                )
-                if remote_entry and remote_entry.get("id"):
-                    client.delete_mcp_server(int(remote_entry["id"]))
-                    print(f"  Deleted MCP server from Cognitive (id={remote_entry['id']}).")
-                else:
-                    print("  Warning: MCP server not found in Cognitive; skipping API deletion.")
-            except CogSolAPIError as exc:
-                print(f"  Warning: could not delete server from API: {exc}")
-        else:
-            print("  COGSOL_API_BASE not set — skipping API deletion.")
+        # Nothing is deleted in Cognitive here: the project is the source of
+        # truth, so the removal travels through a migration like any other
+        # change.  ``migrate`` applies it using the ids kept in .state.json.
 
         # ── Remove server class from mcp_servers.py ──────────────────
         servers_file = project_path / app / "mcp_servers.py"
@@ -267,6 +352,14 @@ class Command(BaseCommand):
             source = source.replace(import_line + "\n", "").replace(import_line, "")
             tools_file.write_text(source, encoding="utf-8")
 
+        # ── Remove references from the agents that used those tools ───
+        tool_class_names = {cls.__name__ for cls in server_tools.values()}
+        for agent_file, removed_names in _clean_agent_references(
+            project_path / app, tool_class_names
+        ):
+            names = ", ".join(sorted(set(removed_names)))
+            print(f"  Removed {names} from {agent_file.relative_to(project_path)}")
+
         # ── Clean .env ────────────────────────────────────────────────
         env_path = project_path / ".env"
         prefix = _find_server_env_prefix(server_real_name)
@@ -285,16 +378,9 @@ class Command(BaseCommand):
             except json.JSONDecodeError:
                 state = {}
 
-            remote = state.get("remote", {})
-            mcp_srv = remote.get("mcp_servers", {})
-            for k in list(mcp_srv.keys()):
-                if k in (server_key, server_real_name, server_cls.__name__):
-                    del mcp_srv[k]
-
-            mcp_tools_remote = remote.get("mcp_tools", {})
-            for tool_name in server_tools:
-                mcp_tools_remote.pop(tool_name, None)
-
+            # The remote ids are deliberately kept: 'migrate' needs them to
+            # delete the server and its tools in Cognitive, and drops them
+            # afterwards.
             local_state = state.get("state", {})
             local_state.get("mcp_servers", {}).pop(server_key, None)
             for tool_name in server_tools:
@@ -304,7 +390,8 @@ class Command(BaseCommand):
             print("  Updated .state.json")
 
         print(
-            "\nDone! Run 'python manage.py makemigrations' followed by "
-            "'python manage.py migrate' to apply the deletion."
+            "\nRemoved from the project. Nothing was deleted in Cognitive yet — run\n"
+            "'python manage.py makemigrations' followed by 'python manage.py migrate' "
+            "to apply it."
         )
         return 0

@@ -19,6 +19,7 @@ from cogsol.core.constants import (
     get_content_api_base_url,
 )
 from cogsol.core.credentials import ONBOARDING_MESSAGE
+from cogsol.core.http_errors import summarize_http_error
 
 
 class CogSolAPIError(RuntimeError):
@@ -222,8 +223,10 @@ class CogSolClient:
                     content_type=content_type,
                     retry_on_401=False,
                 )
-            detail = exc.read().decode("utf-8", errors="ignore")
-            raise CogSolAPIError(f"{exc.code} {exc.reason}: {detail}") from exc
+            detail = summarize_http_error(exc.read().decode("utf-8", errors="ignore"))
+            if detail:
+                raise CogSolAPIError(f"{exc.code} {exc.reason}: {detail}") from exc
+            raise CogSolAPIError(f"{exc.code} {exc.reason}") from exc
         except error.URLError as exc:  # pragma: no cover - I/O
             raise CogSolAPIError(f"Connection error: {exc.reason}") from exc
 
