@@ -210,4 +210,6 @@ def test_delete_cleans_the_agent_that_used_the_tool(monkeypatch, tmp_path, capsy
     assert "AtlassianuserinfoMCPTool" not in agent_source
     assert "tools = []" in agent_source
     ast.parse(agent_source)
-    assert "Removed AtlassianuserinfoMCPTool from agents/miagente/agent.py" in out
+    # The path is printed with the platform separator.
+    relative_agent = Path("agents") / "miagente" / "agent.py"
+    assert f"Removed AtlassianuserinfoMCPTool from {relative_agent}" in out

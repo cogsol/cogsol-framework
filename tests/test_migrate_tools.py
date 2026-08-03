@@ -2,6 +2,8 @@
 Tests for tool code transformation during migrations.
 """
 
+from __future__ import annotations
+
 import ast
 from pathlib import Path
 
