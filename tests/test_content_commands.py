@@ -65,6 +65,19 @@ class TestStartprojectCommand:
 
             assert "from data.product_docs import ProductDocsTopic" in content
 
+    def test_manage_template_includes_cogsol_import_fallback(self):
+        """Generated manage.py should include a local-source fallback for cogsol imports."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir) / "myproject"
+
+            cmd = StartprojectCommand()
+            cmd.handle(project_path=None, name="myproject", directory=str(project_dir))
+
+            content = (project_dir / "manage.py").read_text(encoding="utf-8")
+
+            assert "def _ensure_cogsol_importable(project_path: Path) -> None:" in content
+            assert "python -m pip install -e ." in content
+
     def test_fails_if_directory_not_empty(self):
         """Command should fail if the target directory already has files."""
         with tempfile.TemporaryDirectory() as tmpdir:
