@@ -26,11 +26,39 @@ MANAGE_PY = """\
 import sys
 from pathlib import Path
 
-from cogsol.core.management import execute_from_command_line
+
+def _ensure_cogsol_importable(project_path: Path) -> None:
+    try:
+        import cogsol  # noqa: F401
+        return
+    except ModuleNotFoundError as exc:
+        if exc.name != "cogsol":
+            raise
+
+    # When a project is created from a local framework clone, allow running
+    # manage.py even if the editable install is missing or points elsewhere.
+    candidates = [project_path.parent, project_path.parent.parent]
+    for candidate in candidates:
+        if (candidate / "cogsol").is_dir():
+            sys.path.insert(0, str(candidate))
+            return
 
 
 def main():
     project_path = Path(__file__).resolve().parent
+    _ensure_cogsol_importable(project_path)
+
+    try:
+        from cogsol.core.management import execute_from_command_line
+    except ModuleNotFoundError as exc:
+        if exc.name == "cogsol":
+            print(
+                "Could not import 'cogsol'. Activate the virtual environment where "
+                "'cogsol-framework' is installed, or run 'python -m pip install -e .'."
+            )
+            return 1
+        raise
+
     return execute_from_command_line(sys.argv, project_path=project_path)
 
 
