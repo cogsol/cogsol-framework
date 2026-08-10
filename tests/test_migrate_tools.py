@@ -2,6 +2,8 @@
 Tests for tool code transformation during migrations.
 """
 
+from __future__ import annotations
+
 import ast
 from pathlib import Path
 
@@ -488,6 +490,98 @@ class TestContentMigrationFilters:
 
         assert [kind for kind, _ in calls] == ["topic", "metadata_config", "retrieval"]
         assert calls[-1][1]["filters"] == [20]
+
+
+class TestApplyMCPDeletions:
+    """MCP removals reach Cognitive through migrate, using the stored ids."""
+
+    class FakeClient:
+        def __init__(self, failing: set[int] | None = None):
+            self.deleted: list[tuple[str, int]] = []
+            self.failing = failing or set()
+
+        def delete_mcp_server(self, server_id):
+            if server_id in self.failing:
+                raise CogSolAPIError("404 Not Found")
+            self.deleted.append(("server", server_id))
+
+        def delete_mcp_tool(self, tool_id):
+            if tool_id in self.failing:
+                raise CogSolAPIError("404 Not Found")
+            self.deleted.append(("tool", tool_id))
+
+    def _state(self):
+        return {"mcp_servers": {}, "mcp_tools": {}}
+
+    def test_deletes_tools_before_servers_using_stored_ids(self) -> None:
+        client = self.FakeClient()
+        remote_ids = {"mcp_servers": {"srv": 185}, "mcp_tools": {"toolA": 1169}}
+
+        Command()._apply_mcp_deletions(
+            client=client,
+            state=self._state(),
+            remote_ids=remote_ids,
+            touched={"mcp_servers": {"srv"}, "mcp_tools": {"toolA"}},
+        )
+
+        assert client.deleted == [("tool", 1169), ("server", 185)]
+        # Ids are dropped once applied.
+        assert remote_ids["mcp_servers"] == {}
+        assert remote_ids["mcp_tools"] == {}
+
+    def test_keeps_entities_that_still_exist(self) -> None:
+        client = self.FakeClient()
+        state = {"mcp_servers": {"srv": {"fields": {}}}, "mcp_tools": {}}
+
+        Command()._apply_mcp_deletions(
+            client=client,
+            state=state,
+            remote_ids={"mcp_servers": {"srv": 185}, "mcp_tools": {}},
+            touched={"mcp_servers": {"srv"}},
+        )
+
+        assert client.deleted == []
+
+    def test_warns_when_no_remote_id_is_known(self, capsys) -> None:
+        client = self.FakeClient()
+
+        Command()._apply_mcp_deletions(
+            client=client,
+            state=self._state(),
+            remote_ids={"mcp_servers": {}, "mcp_tools": {}},
+            touched={"mcp_servers": {"never-published"}},
+        )
+        out = capsys.readouterr().out
+
+        assert client.deleted == []
+        assert "no remote id known" in out
+
+    def test_api_failure_is_reported_without_aborting(self, capsys) -> None:
+        """A tool already removed by its server's cascade must not stop the run."""
+        client = self.FakeClient(failing={1169})
+
+        Command()._apply_mcp_deletions(
+            client=client,
+            state=self._state(),
+            remote_ids={"mcp_servers": {"srv": 185}, "mcp_tools": {"toolA": 1169}},
+            touched={"mcp_servers": {"srv"}, "mcp_tools": {"toolA"}},
+        )
+        out = capsys.readouterr().out
+
+        assert client.deleted == [("server", 185)]
+        assert "could not delete" in out
+
+    def test_full_sync_without_pending_operations_deletes_nothing(self) -> None:
+        client = self.FakeClient()
+
+        Command()._apply_mcp_deletions(
+            client=client,
+            state=self._state(),
+            remote_ids={"mcp_servers": {"srv": 185}, "mcp_tools": {}},
+            touched=None,
+        )
+
+        assert client.deleted == []
 
 
 class TestRollbackDeleteDispatch:

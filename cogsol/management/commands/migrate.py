@@ -309,6 +309,48 @@ class Command(BaseCommand):
                 continue
             self._update_mcp_tool_remote_ids(remote_ids, payload)
 
+    def _apply_mcp_deletions(
+        self,
+        *,
+        client: CogSolClient,
+        state: dict[str, Any],
+        remote_ids: dict[str, Any],
+        touched: dict[str, set[str]] | None,
+    ) -> None:
+        """Delete in Cognitive the MCP servers/tools removed from the project.
+
+        A name that a migration touched but that is no longer in the state was
+        deleted, so its remote counterpart must go too.  Tools are deleted first
+        because removing a server cascades to them in the API.
+        """
+        if touched is None:
+            return
+
+        for entity, delete in (
+            ("mcp_tools", client.delete_mcp_tool),
+            ("mcp_servers", client.delete_mcp_server),
+        ):
+            surviving = state.get(entity, {}) or {}
+            removed = [name for name in sorted(touched.get(entity, set())) if name not in surviving]
+            for name in removed:
+                remote_id = (remote_ids.get(entity, {}) or {}).get(name)
+                if isinstance(remote_id, str) and remote_id.isdigit():
+                    remote_id = int(remote_id)
+                if not isinstance(remote_id, int):
+                    print(
+                        f"  Warning: no remote id known for deleted {entity[:-1]} "
+                        f"'{name}'; skipping API deletion."
+                    )
+                    continue
+                label = entity.replace("_", " ")[:-1]
+                try:
+                    delete(remote_id)
+                    print(f"  Deleted {label} '{name}' in Cognitive (id={remote_id}).")
+                except CogSolAPIError as exc:
+                    # A tool may already be gone: deleting its server cascades.
+                    print(f"  Warning: could not delete {label} '{name}' (id={remote_id}): {exc}")
+                remote_ids.get(entity, {}).pop(name, None)
+
     def _touched_entities(self, operations: list[Any]) -> dict[str, set[str]]:
         touched: dict[str, set[str]] = {}
         for op in operations:
@@ -670,10 +712,20 @@ class Command(BaseCommand):
                     if explicit_name:
                         new_remote["retrieval_tools"][explicit_name] = new_id
 
+            # MCP creations/updates are published by addmcptools/editmcptools,
+            # which need an interactive OAuth flow.  Deletions, on the other
+            # hand, are applied here so removing a server is a normal migration.
+            self._apply_mcp_deletions(
+                client=client,
+                state=state,
+                remote_ids=new_remote,
+                touched=touched,
+            )
+
             if touched is None or touched.get("mcp_servers") or touched.get("mcp_tools"):
                 print(
-                    "  MCP server/tool migration operations are skipped in 'migrate'. "
-                    "Use 'addmcptools' to publish MCP catalog to Cognitive."
+                    "  MCP server/tool creations and updates are published by "
+                    "'addmcptools'/'editmcptools'; only deletions are applied here."
                 )
 
             # Migrate only needs MCP tool ids for assistant associations.

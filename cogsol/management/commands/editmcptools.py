@@ -162,19 +162,38 @@ def _update_env_file(
 # ---------------------------------------------------------------------------
 
 
+def _is_authorized(*, client: CogSolClient, server_id: int) -> bool:
+    """True when the API can reach the MCP server with the stored OAuth token.
+
+    The API exposes no ``oauth_status`` field; the tools endpoint answers
+    511 + ``mcp_oauth_required`` while authorization is still pending.
+    """
+    try:
+        client.list_mcp_server_tools(server_id)
+        return True
+    except CogSolAPIError as exc:
+        if _is_oauth_required_error(exc):
+            return False
+        raise
+
+
 def _wait_for_oauth_connected(
     *, client: CogSolClient, server_id: int, timeout_seconds: int
 ) -> bool:
     start = time.time()
-    while time.time() - start < timeout_seconds:
+    last_error = ""
+    while True:
         try:
-            data = client.get_mcp_server(server_id) or {}
-            if str(data.get("oauth_status", "")).lower() == "connected":
+            if _is_authorized(client=client, server_id=server_id):
                 return True
-        except CogSolAPIError:
-            pass
+        except CogSolAPIError as exc:
+            # Keep polling, but surface the reason instead of hiding it.
+            if str(exc) != last_error:
+                last_error = str(exc)
+                print(f"  Still waiting; last API response: {exc}")
+        if time.time() - start >= timeout_seconds:
+            return False
         time.sleep(OAUTH_POLL_INTERVAL_SECONDS)
-    return False
 
 
 def _is_oauth_reauth_error(exc: CogSolAPIError) -> bool:
@@ -245,40 +264,23 @@ class Command(BaseCommand):
         name_n = norm(server_name)
         url_n = norm(str(server_url).rstrip("/"))
 
-        exact = [
-            s
-            for s in results
-            if isinstance(s, dict)
-            and norm(s.get("name")) == name_n
-            and norm(str(s.get("url", "")).rstrip("/")) == url_n
-        ]
-        if exact:
-            return exact[0]
-
+        # The name is part of a server's identity: never adopt a remote server
+        # just because the URL matches, or editing one server would silently
+        # take over another that happens to share the same MCP endpoint.
         by_name = [s for s in results if isinstance(s, dict) and norm(s.get("name")) == name_n]
-        if len(by_name) == 1:
-            return by_name[0]
+        if not by_name:
+            return None
 
-        by_url = [
-            s
-            for s in results
-            if isinstance(s, dict) and norm(str(s.get("url", "")).rstrip("/")) == url_n
-        ]
-        if len(by_url) >= 1:
-            by_url.sort(
-                key=lambda s: str(s.get("updated_at") or s.get("created_at") or ""),
-                reverse=True,
-            )
-            return by_url[0]
+        by_url = [s for s in by_name if norm(str(s.get("url", "")).rstrip("/")) == url_n]
+        candidates = by_url or by_name
+        if len(candidates) == 1:
+            return candidates[0]
 
-        if len(by_name) > 1:
-            by_name.sort(
-                key=lambda s: str(s.get("updated_at") or s.get("created_at") or ""),
-                reverse=True,
-            )
-            return by_name[0]
-
-        return None
+        candidates.sort(
+            key=lambda s: str(s.get("updated_at") or s.get("created_at") or ""),
+            reverse=True,
+        )
+        return candidates[0]
 
     def _discover_tools_via_api(
         self,
@@ -368,7 +370,8 @@ class Command(BaseCommand):
         old_server_name: str,
         old_server_url: str,
         oauth_timeout: int,
-    ) -> None:
+    ) -> int:
+        """Publish the updated server and its tools, returning its remote id."""
         api_base = get_cognitive_api_base_url()
         api_key = os.environ.get("COGSOL_API_KEY")
 
@@ -417,8 +420,7 @@ class Command(BaseCommand):
                     force_auth = True
                 else:
                     raise
-            server_data = client.get_mcp_server(server_id) or {}
-            if force_auth or str(server_data.get("oauth_status", "")).lower() != "connected":
+            if force_auth or not _is_authorized(client=client, server_id=server_id):
                 print("  OAuth not connected yet — starting authorization flow...")
                 _start_oauth_authorization(
                     client=client,
@@ -430,7 +432,7 @@ class Command(BaseCommand):
         tool_names = [str(t.get("name")) for t in selected_tools if t.get("name")]
         if not tool_names:
             print("  No MCP tools selected.")
-            return
+            return server_id
 
         try:
             client.sync_mcp_server_tools(server_id, tool_names)
@@ -443,6 +445,7 @@ class Command(BaseCommand):
             )
             client.sync_mcp_server_tools(server_id, tool_names)
         print(f"  Synced {len(tool_names)} MCP tool(s) in Cognitive.")
+        return server_id
 
     def handle(self, project_path: Path | None, **options: Any) -> int:  # noqa: C901
         assert project_path is not None, "project_path is required"
@@ -867,7 +870,7 @@ class Command(BaseCommand):
         # -- Publish to Cognitive --
         print("\nPublishing updated MCP server/tools to Cognitive...")
         try:
-            self._publish_update(
+            server_id = self._publish_update(
                 server_name=server_name,
                 server_description=server_description,
                 server_url=server_url,
@@ -900,6 +903,13 @@ class Command(BaseCommand):
                 entry = mcp_srv_state.pop(old_server_key, None)
                 if entry:
                     mcp_srv_state[server_name] = entry
+
+            # Keep the remote id under the current name, so migrate can still
+            # delete the server after a rename.
+            remote_servers = state.setdefault("remote", {}).setdefault("mcp_servers", {})
+            if name_changed:
+                remote_servers.pop(old_server_key, None)
+            remote_servers[server_name] = server_id
 
             state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
             print("  Updated .state.json")

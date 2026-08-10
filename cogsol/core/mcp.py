@@ -7,10 +7,17 @@ MCP server.  No third-party dependencies are required.
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from typing import Any, cast
 from urllib import error, request
+
+from cogsol import __version__
+from cogsol.core.http_errors import summarize_http_error
+
+# ``urllib`` otherwise announces itself as ``Python-urllib/x.y``, a signature
+# that CDNs in front of public MCP servers (e.g. Cloudflare rule 1010) reject
+# with 403 before the request ever reaches the server.
+DEFAULT_USER_AGENT = f"cogsol-framework/{__version__} (+https://cogsol.ai; MCP client)"
 
 
 class MCPClientError(RuntimeError):
@@ -79,22 +86,58 @@ class MCPClient:
             self.initialized = True
             return True
         except MCPClientError as exc:
-            msg = str(exc)
-            if "HTTP 401" in msg and self.auth_type == "oauth2":
-                print(
-                    "[MCPClient] Received 401 — this OAuth 2.1 server requires user "
-                    "authorization.\n"
-                    "  Tool discovery without auth failed, but you can still create the "
-                    "server definition.\n"
-                    "  Complete the OAuth authorization flow from the CogSol portal after "
-                    "running `migrate`."
-                )
-            else:
-                print(f"[MCPClient] Failed to initialize: {exc}")
+            print(self._describe_initialize_failure(exc))
             return False
         except Exception as exc:
             print(f"[MCPClient] Failed to initialize: {exc}")
             return False
+
+    def _describe_initialize_failure(self, exc: MCPClientError) -> str:
+        """Turn a handshake failure into an explanation instead of a raw payload."""
+        msg = str(exc)
+
+        if "HTTP 401" in msg:
+            if self.auth_type == "oauth2":
+                return (
+                    "[MCPClient] The server answered 401 — it requires user authorization "
+                    "before listing tools.\n"
+                    "  This is expected for OAuth 2.1 servers: discovery continues through "
+                    "the CogSol API,\n"
+                    "  which holds the OAuth tokens."
+                )
+            return (
+                "[MCPClient] The server answered 401 Unauthorized — the credentials sent "
+                "were rejected.\n"
+                "  Check the header values you entered (or whether this server needs "
+                "auth_type='oauth2')."
+            )
+
+        if "HTTP 403" in msg:
+            detail = (
+                "  A CDN or WAF in front of the server blocked the request before it "
+                "reached the MCP endpoint\n"
+                "  (Cloudflare error 1010 means the client signature was rejected)."
+            )
+            if self.auth_type == "oauth2":
+                return (
+                    "[MCPClient] The server answered 403 — a direct connection from here "
+                    "is not allowed.\n" + detail + "\n"
+                    "  Discovery continues through the CogSol API, so this is not fatal."
+                )
+            return (
+                "[MCPClient] The server answered 403 — a direct connection from here is "
+                "not allowed.\n" + detail + "\n"
+                "  Tools cannot be listed; verify the URL and whether the server requires "
+                "specific headers."
+            )
+
+        if "Connection error" in msg:
+            return (
+                f"[MCPClient] Could not reach the server: {msg}\n"
+                "  Check the URL and your network connection."
+            )
+
+        return f"[MCPClient] Failed to initialize: {exc}"
 
     def list_tools(self) -> list[dict[str, Any]]:
         """Return tools discovered during ``initialize``."""
@@ -105,7 +148,10 @@ class MCPClient:
         if not self.session_id:
             return
         try:
-            headers = {"Mcp-Session-Id": self.session_id}
+            headers = {
+                "Mcp-Session-Id": self.session_id,
+                "User-Agent": DEFAULT_USER_AGENT,
+            }
             headers.update(self.extra_headers)
             req = request.Request(self.server_url, headers=headers, method="DELETE")
             with request.urlopen(req, timeout=5):
@@ -120,26 +166,7 @@ class MCPClient:
     @staticmethod
     def _summarize_http_error(detail: str) -> str:
         """Return a concise HTTP error detail suitable for terminal output."""
-        clean = (detail or "").strip()
-        if not clean:
-            return ""
-
-        # Cloudflare / proxy pages often return full HTML documents.
-        if "<html" in clean.lower() or "<!doctype html" in clean.lower():
-            title_match = re.search(r"<title>(.*?)</title>", clean, re.IGNORECASE | re.DOTALL)
-            if title_match:
-                title = re.sub(r"\s+", " ", title_match.group(1)).strip()
-                return f"HTML error page returned ({title})"
-            h1_match = re.search(r"<h1[^>]*>(.*?)</h1>", clean, re.IGNORECASE | re.DOTALL)
-            if h1_match:
-                heading = re.sub(r"\s+", " ", h1_match.group(1)).strip()
-                return f"HTML error page returned ({heading})"
-            return "HTML error page returned by remote server"
-
-        single_line = re.sub(r"\s+", " ", clean)
-        if len(single_line) > 240:
-            return f"{single_line[:237]}..."
-        return single_line
+        return summarize_http_error(detail)
 
     def _make_request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         request_id = str(uuid.uuid4())
@@ -154,9 +181,11 @@ class MCPClient:
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
+            "User-Agent": DEFAULT_USER_AGENT,
         }
         if self.session_id:
             headers["Mcp-Session-Id"] = self.session_id
+        # User-supplied headers win, so a custom User-Agent can still be set.
         headers.update(self.extra_headers)
 
         body = json.dumps(payload).encode("utf-8")
