@@ -1447,9 +1447,7 @@ class Command(BaseCommand):
 
         # Not nullable in Cognitive: None means "not configured", keep the remote value.
         _set_if_declared("asynchronous", "async_available", bool, allow_none=False)
-        _set_if_declared(
-            "self_improvement_mode", "matrix_mode_available", bool, allow_none=False
-        )
+        _set_if_declared("self_improvement_mode", "matrix_mode_available", bool, allow_none=False)
         _set_if_declared(
             "user_interactions_window", "messages_window_to_generator", int, allow_none=False
         )

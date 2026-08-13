@@ -652,9 +652,7 @@ class Command(BaseCommand):
         if assistant.get("add_to_user_message"):
             _declare("append_to_user_message", assistant.get("add_to_user_message"))
         if assistant.get("messages_window_to_generator") is not None:
-            _declare(
-                "user_interactions_window", int(assistant.get("messages_window_to_generator"))
-            )
+            _declare("user_interactions_window", int(assistant.get("messages_window_to_generator")))
         if token_strategy:
             _declare(
                 "token_optimization",
