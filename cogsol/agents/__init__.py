@@ -16,6 +16,102 @@ from cogsol.core.api import CogSolAPIError, CogSolClient
 from cogsol.core.constants import get_cognitive_api_base_url
 from cogsol.core.env import load_dotenv
 
+# Values Cognitive accepts for each choice field.
+REASONING_EFFORTS = ("low", "medium", "high", "xhigh", "none")
+REASONING_SUMMARIES = ("auto", "concise", "detailed", "none")
+WEBSEARCH_MODES = ("agentic", "deep_research")
+WEBSEARCH_LOCATION_KEYS = ("country", "city", "region", "timezone")
+PDF_MODES = ("image", "text")
+
+PDF_CONTENT_TYPE = "application/pdf"
+
+ATTACHMENT_CONTENT_TYPES = (
+    PDF_CONTENT_TYPE,
+    "image/png",
+    "image/jpeg",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+    "text/x-tex",
+    "application/x-tex",
+    "application/x-latex",
+    "text/plain",
+    "text/markdown",
+    "text/x-markdown",
+    "application/octet-stream",
+)
+
+
+@dataclass(frozen=True)
+class _AttachmentSpec:
+    # content_types is a field, not a ClassVar, so the migration diff can tell two
+    # specs apart when their flags are identical.
+    content_types: tuple[str, ...] = ()
+    accepted: bool = True
+    send_to_model: bool = False
+
+
+class attachment:
+    """Attachment types an agent can accept, grouped by format."""
+
+    @dataclass(frozen=True)
+    class Pdf(_AttachmentSpec):
+        """PDFs. ``mode='image'`` sends the raw file, ``'text'`` sends extracted text."""
+
+        content_types: tuple[str, ...] = (PDF_CONTENT_TYPE,)
+        mode: str = "image"
+
+    @dataclass(frozen=True)
+    class Image(_AttachmentSpec):
+        """PNG and JPEG images, always delivered as raw files."""
+
+        content_types: tuple[str, ...] = ("image/png", "image/jpeg")
+
+    @dataclass(frozen=True)
+    class Word(_AttachmentSpec):
+        """Word documents (.docx)."""
+
+        content_types: tuple[str, ...] = (
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+    @dataclass(frozen=True)
+    class Excel(_AttachmentSpec):
+        """Excel spreadsheets (.xlsx, .xls)."""
+
+        content_types: tuple[str, ...] = (
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.ms-excel",
+        )
+
+    @dataclass(frozen=True)
+    class Text(_AttachmentSpec):
+        """Plain text files."""
+
+        content_types: tuple[str, ...] = ("text/plain",)
+
+    @dataclass(frozen=True)
+    class Markdown(_AttachmentSpec):
+        """Markdown files."""
+
+        content_types: tuple[str, ...] = ("text/markdown", "text/x-markdown")
+
+    @dataclass(frozen=True)
+    class Latex(_AttachmentSpec):
+        """LaTeX sources."""
+
+        content_types: tuple[str, ...] = ("text/x-tex", "application/x-tex", "application/x-latex")
+
+    @dataclass(frozen=True)
+    class Binary(_AttachmentSpec):
+        """Files without a recognized content type."""
+
+        content_types: tuple[str, ...] = ("application/octet-stream",)
+
+    @dataclass(frozen=True)
+    class Custom(_AttachmentSpec):
+        """Content types Cognitive accepts but this version does not name."""
+
 
 class BaseAgent:
     """
@@ -36,12 +132,21 @@ class BaseAgent:
     user_message_length: int | None = None
     consecutive_tool_calls_limit: int | None = None
     user_interactions_window: int | None = None
+    append_to_user_message: str | None = None
     token_optimization: Any = None
     streaming: bool = False
+    # Cognitive "matrix mode": requires FAQs and is rejected in production.
     self_improvement_mode: bool = False
     realtime: bool = False
+    asynchronous: bool = False
     reasoning: bool = False
+    reasoning_effort: str | None = None
+    reasoning_summary: str | None = None
     websearch: bool = False
+    websearch_mode: str | None = None
+    websearch_domains: list[str] | None = None
+    websearch_location: dict[str, str] | None = None
+    attachments: list[Any] = []
     lessons: list[Any] = []
     faqs: list[Any] = []
     fixed_responses: list[Any] = []
@@ -245,5 +350,25 @@ class optimizations:
         def __init__(self) -> None:
             super().__init__("description_only")
 
+    class SkipAllContent(_ConfigBase):
+        def __init__(self) -> None:
+            super().__init__("skip_all_content")
 
-__all__ = ["BaseAgent", "genconfigs", "optimizations"]
+    class NoOptimization(_ConfigBase):
+        def __init__(self) -> None:
+            super().__init__("no_optimization")
+
+
+__all__ = [
+    "ATTACHMENT_CONTENT_TYPES",
+    "PDF_CONTENT_TYPE",
+    "PDF_MODES",
+    "REASONING_EFFORTS",
+    "REASONING_SUMMARIES",
+    "WEBSEARCH_LOCATION_KEYS",
+    "WEBSEARCH_MODES",
+    "BaseAgent",
+    "attachment",
+    "genconfigs",
+    "optimizations",
+]

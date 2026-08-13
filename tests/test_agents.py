@@ -5,8 +5,8 @@ Tests for the agents module.
 import tempfile
 from pathlib import Path
 
-from cogsol.agents import BaseAgent, genconfigs, optimizations
-from cogsol.core.loader import collect_classes, collect_definitions
+from cogsol.agents import BaseAgent, attachment, genconfigs, optimizations
+from cogsol.core.loader import collect_classes, collect_definitions, serialize_value
 from cogsol.core.migrations import diff_states, empty_state
 from cogsol.db.migrations import (
     AlterField,
@@ -54,6 +54,49 @@ class TestBaseAgent:
         assert CustomAgent.streaming is True
         assert issubclass(CustomAgent, BaseAgent)
 
+    def test_optional_configuration_defaults(self):
+        """Optional configuration should default to "not configured"."""
+        assert BaseAgent.attachments == []
+        assert BaseAgent.asynchronous is False
+        assert BaseAgent.self_improvement_mode is False
+        assert BaseAgent.append_to_user_message is None
+        assert BaseAgent.reasoning_effort is None
+        assert BaseAgent.reasoning_summary is None
+        assert BaseAgent.websearch_mode is None
+        assert BaseAgent.websearch_domains is None
+        assert BaseAgent.websearch_location is None
+
+
+class TestAttachmentSpecs:
+    """Tests for attachment specifications."""
+
+    def test_named_specs_carry_their_content_types(self):
+        """Each named spec should resolve to the content types it covers."""
+        assert attachment.Pdf().content_types == ("application/pdf",)
+        assert attachment.Image().content_types == ("image/png", "image/jpeg")
+        assert attachment.Markdown().content_types == ("text/markdown", "text/x-markdown")
+
+    def test_defaults_accept_without_sending_to_model(self):
+        """An attachment should be uploadable but kept away from the model by default."""
+        spec = attachment.Text()
+        assert spec.accepted is True
+        assert spec.send_to_model is False
+
+    def test_serialization_keeps_every_setting(self):
+        """Migration state must keep the flags so changes show up in the diff."""
+        serialized = serialize_value(attachment.Pdf(send_to_model=True, mode="text"))
+
+        assert serialized == {
+            "accepted": True,
+            "content_types": ["application/pdf"],
+            "mode": "text",
+            "send_to_model": True,
+        }
+
+    def test_serialization_distinguishes_specs_with_equal_flags(self):
+        """Two formats sharing flags must not collapse into the same state."""
+        assert serialize_value(attachment.Text()) != serialize_value(attachment.Binary())
+
 
 class TestGenConfigs:
     """Tests for generation configurations."""
@@ -81,6 +124,14 @@ class TestOptimizations:
         """DescriptionOnly should have correct name."""
         opt = optimizations.DescriptionOnly()
         assert opt.name == "description_only"
+
+    def test_skip_all_content(self):
+        """SkipAllContent should have correct name."""
+        assert optimizations.SkipAllContent().name == "skip_all_content"
+
+    def test_no_optimization(self):
+        """NoOptimization should have correct name."""
+        assert optimizations.NoOptimization().name == "no_optimization"
 
 
 class TestAgentFaqDiffs:
