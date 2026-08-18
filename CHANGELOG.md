@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `BaseAgent.attachments`: agents can now declare which file types the chat accepts and which ones reach the model, through the `attachment` specs (`Pdf`, `Image`, `Word`, `Excel`, `Text`, `Markdown`, `Latex`, `Binary` and `Custom`). Each spec takes `accepted` and `send_to_model`, and `Pdf` takes `mode="image"|"text"`. Mapped to the Cognitive `attachment_config` field. Declaring `attachments = []` accepts no attachments.
+- `BaseAgent.reasoning_effort` and `BaseAgent.reasoning_summary` to configure reasoning beyond the on/off flag.
+- `BaseAgent.websearch_mode`, `BaseAgent.websearch_domains` and `BaseAgent.websearch_location` to configure web search beyond the on/off flag.
+- `BaseAgent.asynchronous`, mapped to the Cognitive `async_available` field.
+- `BaseAgent.append_to_user_message`, mapped to the Cognitive `add_to_user_message` field.
+- `optimizations.SkipAllContent()` and `optimizations.NoOptimization()`, completing the token optimization strategies the Generator recognizes.
+- `importagent` now imports every configuration above, including reconstructing `attachments` from the remote `attachment_config`, and declares `streaming`/`realtime` in the generated agent instead of only in the migration state.
+- Choice, domain and attachment values are validated locally during `migrate`, with the list of valid values in the error message. Cognitive does not run model validation on these fields, so an invalid configuration used to be persisted silently and never work.
+
+### Changed
+- Optional agent configuration is only sent to Cognitive when the agent class declares it. Anything left to the portal now survives a `migrate` instead of being reset to a framework default. The attributes already sent in previous versions keep being sent unconditionally.
+- `BaseAgent.user_interactions_window`, `BaseAgent.token_optimization` and `BaseAgent.self_improvement_mode` are now applied. All three were documented but never reached Cognitive, so agents declaring them will see their behaviour change on the next `migrate`: history sent to the model is capped by `user_interactions_window`, past retrieval results are trimmed per `token_optimization`, and `self_improvement_mode` enables matrix mode (`matrix_mode_available`).
+
+### Fixed
+- `BaseAgent.reasoning` and `BaseAgent.websearch` had no effect: `migrate` sent them as `reasoning_available` and `websearch_available`, fields that do not exist in Cognitive, so they were silently discarded. They are now sent as `reasoning_enabled` and `web_search_enabled`. **Agents that already declare these flags will actually enable reasoning or web search on the next `migrate`, which changes the cost per message.** `importagent` read the same non-existent fields and never imported them.
+- `migrate` no longer wipes `add_to_user_message` and `strategy_to_optimize_tokens`, which were hardcoded to `null` on every run and overwrote whatever was configured in the portal.
+- `matrix_mode_available` is no longer derived from `realtime`. They are separate Cognitive features: matrix mode requires FAQ support and is rejected in production, so a `realtime` agent without FAQs failed to migrate. It is now driven by `self_improvement_mode`, and agents relying on the old behaviour stop having matrix mode enabled on the next `migrate`.
+- `importagent` no longer writes migration state for attributes the generated agent does not declare, which made the first `makemigrations` after an import report changes that were not there.
+
 ---
 
 ## [0.3.0] - 2026-07-15

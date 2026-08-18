@@ -63,6 +63,7 @@ class MyAgent(BaseAgent):
 | `initial_message` | `str` | `None` | First message sent to user |
 | `forced_termination_message` | `str` | `None` | Message when conversation ends |
 | `no_information_message` | `str` | `None` | Response when agent lacks information |
+| `append_to_user_message` | `str` | `None` | Text appended to every user message |
 
 ```python
 from cogsol.agents import BaseAgent
@@ -115,17 +116,20 @@ Use script tools (`BaseTool`) for capabilities/actions and retrieval tools (`Bas
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `max_interactions` | `int` | `None` | Max conversation turns |
+| `max_interactions` | `int` | `None` | Max conversation turns (`-1` for unlimited) |
 | `user_message_length` | `int` | `None` | Max user message characters |
 | `consecutive_tool_calls_limit` | `int` | `None` | Max tool calls in sequence |
-| `user_interactions_window` | `int` | `None` | Context window for interactions |
+| `user_interactions_window` | `int` | `None` | Messages of history sent to the model (`-1` for all) |
 
 ```python
 class LimitedAgent(BaseAgent):
     max_interactions = 10
     user_message_length = 2048
     consecutive_tool_calls_limit = 5
+    user_interactions_window = 20
 ```
+
+> **Note:** `max_interactions` and `user_interactions_window` cannot both be `-1`.
 
 #### Features
 
@@ -133,14 +137,91 @@ class LimitedAgent(BaseAgent):
 |-----------|------|---------|-------------|
 | `streaming` | `bool` | `False` | Enable response streaming |
 | `realtime` | `bool` | `False` | Enable real-time mode |
-| `self_improvement_mode` | `bool` | `False` | Enable self-improvement |
-| `token_optimization` | `Any` | `None` | Token optimization strategy |
+| `asynchronous` | `bool` | `False` | Enable asynchronous responses |
+| `self_improvement_mode` | `bool` | `False` | Enable self-improvement (Cognitive matrix mode). Requires FAQs and is rejected in production |
+| `token_optimization` | `optimizations.*` | `None` | Token optimization strategy |
 
 ```python
+from cogsol.agents import BaseAgent, optimizations
+
 class StreamingAgent(BaseAgent):
     streaming = True
     realtime = False
+    token_optimization = optimizations.DescriptionOnly()
 ```
+
+Available strategies: `optimizations.DescriptionOnly()` keeps only the description of
+past retrieval results, `optimizations.SkipAllContent()` drops their content entirely,
+and `optimizations.NoOptimization()` sends the full history.
+
+#### Reasoning
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `reasoning` | `bool` | `False` | Enable reasoning |
+| `reasoning_effort` | `str` | `None` | `low`, `medium`, `high`, `xhigh` or `none` |
+| `reasoning_summary` | `str` | `None` | `auto`, `concise`, `detailed` or `none` |
+
+```python
+class AnalystAgent(BaseAgent):
+    reasoning = True
+    reasoning_effort = "high"
+    reasoning_summary = "concise"
+```
+
+#### Web Search
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `websearch` | `bool` | `False` | Enable web search |
+| `websearch_mode` | `str` | `None` | `agentic` or `deep_research` |
+| `websearch_domains` | `list[str]` | `None` | Allow-list of domains (max. 100, no protocol or path) |
+| `websearch_location` | `dict` | `None` | `country` (2-letter ISO), `city`, `region`, `timezone` |
+
+```python
+class ResearchAgent(BaseAgent):
+    websearch = True
+    websearch_mode = "agentic"
+    websearch_domains = ["cogsol.ai", "python.org"]
+    websearch_location = {"country": "AR", "city": "Buenos Aires"}
+```
+
+#### Attachments
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `attachments` | `list[attachment.*]` | `[]` | File types the chat accepts, and which ones reach the model |
+
+```python
+from cogsol.agents import BaseAgent, attachment
+
+class SupportAgent(BaseAgent):
+    attachments = [
+        attachment.Pdf(send_to_model=True, mode="text"),
+        attachment.Image(send_to_model=True),
+        attachment.Excel(),
+    ]
+```
+
+Every spec takes `accepted` (default `True`) — whether the chat lets the user upload
+the file — and `send_to_model` (default `False`) — whether its content reaches the
+model. An accepted file that is not sent to the model is still available to tools.
+
+| Spec | Content types |
+|------|---------------|
+| `attachment.Pdf` | `application/pdf` — `mode="image"` sends the raw file, `mode="text"` sends extracted text |
+| `attachment.Image` | `image/png`, `image/jpeg` (always delivered as raw files) |
+| `attachment.Word` | `.docx` |
+| `attachment.Excel` | `.xlsx`, `.xls` |
+| `attachment.Text` | `text/plain` |
+| `attachment.Markdown` | `text/markdown`, `text/x-markdown` |
+| `attachment.Latex` | `text/x-tex`, `application/x-tex`, `application/x-latex` |
+| `attachment.Binary` | `application/octet-stream` |
+| `attachment.Custom` | Any accepted type, passed explicitly via `content_types` |
+
+Declaring `attachments = []` accepts no attachments at all. Omitting the attribute
+leaves whatever is configured in the portal untouched — the same rule applies to every
+optional attribute above.
 
 #### Related Content
 

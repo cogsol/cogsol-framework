@@ -23,6 +23,22 @@ class {class_name}(BaseAgent):
     # initial_message = "Hi! how can I help you?"
     # forced_termination_message = "We need to end this chat."
     # no_information_message = "I don't have that information."
+    # Attachments the chat accepts, and which ones reach the model (optional).
+    # Needs: from cogsol.agents import attachment
+    # attachments = [
+    #     attachment.Pdf(send_to_model=True, mode="image"),   # or mode="text"
+    #     attachment.Image(send_to_model=True),
+    #     attachment.Excel(),                                 # accepted, tools only
+    # ]
+    # Reasoning (optional):
+    # reasoning = True
+    # reasoning_effort = "medium"          # low | medium | high | xhigh | none
+    # reasoning_summary = "concise"        # auto | concise | detailed | none
+    # Web search (optional):
+    # websearch = True
+    # websearch_mode = "agentic"           # agentic | deep_research
+    # websearch_domains = ["cogsol.ai"]
+    # websearch_location = {{"country": "AR", "city": "Buenos Aires"}}
 
     class Meta:
         name = "{class_name}"

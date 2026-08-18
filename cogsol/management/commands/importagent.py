@@ -36,6 +36,94 @@ def _safe_class_name(name: str, fallback: str) -> str:
     return _camelize(cleaned, "")
 
 
+_DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+_XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+# Matched in this order when rebuilding an agent from a remote attachment_config.
+_NAMED_ATTACHMENT_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Pdf", ("application/pdf",)),
+    ("Image", ("image/png", "image/jpeg")),
+    ("Word", (_DOCX_TYPE,)),
+    ("Excel", (_XLSX_TYPE, "application/vnd.ms-excel")),
+    ("Text", ("text/plain",)),
+    ("Markdown", ("text/markdown", "text/x-markdown")),
+    ("Latex", ("text/x-tex", "application/x-tex", "application/x-latex")),
+    ("Binary", ("application/octet-stream",)),
+)
+
+_TOKEN_OPTIMIZATIONS = {
+    "description_only": "DescriptionOnly",
+    "skip_all_content": "SkipAllContent",
+}
+
+
+def _attachment_specs_from_config(
+    config: Any,
+) -> list[tuple[str, dict[str, Any], tuple[str, ...]]]:
+    """Rebuild ``(class_name, kwargs, content_types)`` specs from a remote attachment_config."""
+    if not isinstance(config, dict) or not config:
+        return []
+
+    buckets: dict[tuple[bool, bool, Any], list[str]] = {}
+    for content_type, cfg in config.items():
+        if not isinstance(cfg, dict):
+            continue
+        key = (bool(cfg.get("accepted")), bool(cfg.get("send_to_model")), cfg.get("pdf_mode"))
+        buckets.setdefault(key, []).append(str(content_type))
+
+    specs: list[tuple[str, dict[str, Any], tuple[str, ...]]] = []
+    ordered = sorted(buckets.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or ""))
+    for (accepted, send_to_model, pdf_mode), content_types in ordered:
+        remaining = sorted(content_types)
+        for class_name, group in _NAMED_ATTACHMENT_GROUPS:
+            if not all(ct in remaining for ct in group):
+                continue
+            kwargs: dict[str, Any] = {"accepted": accepted, "send_to_model": send_to_model}
+            if class_name == "Pdf":
+                kwargs["mode"] = pdf_mode or "image"
+            specs.append((class_name, kwargs, group))
+            for ct in group:
+                remaining.remove(ct)
+        if remaining:
+            leftover = tuple(remaining)
+            kwargs = {
+                "content_types": leftover,
+                "accepted": accepted,
+                "send_to_model": send_to_model,
+            }
+            specs.append(("Custom", kwargs, leftover))
+    return specs
+
+
+def _attachment_source(specs: list[tuple[str, dict[str, Any], tuple[str, ...]]]) -> str:
+    """Render attachment specs as the source of an ``attachments`` class attribute."""
+    if not specs:
+        return ""
+    lines = ["    attachments = ["]
+    for class_name, kwargs, _ in specs:
+        args = ", ".join(f"{key}={value!r}" for key, value in kwargs.items())
+        lines.append(f"        attachment.{class_name}({args}),")
+    lines.append("    ]")
+    return "\n".join(lines) + "\n"
+
+
+def _attachment_state(
+    specs: list[tuple[str, dict[str, Any], tuple[str, ...]]],
+) -> list[dict[str, Any]]:
+    """Render attachment specs the way ``serialize_value`` renders the generated source."""
+    state: list[dict[str, Any]] = []
+    for _, kwargs, content_types in specs:
+        entry: dict[str, Any] = {
+            "accepted": kwargs["accepted"],
+            "content_types": list(content_types),
+            "send_to_model": kwargs["send_to_model"],
+        }
+        if "mode" in kwargs:
+            entry["mode"] = kwargs["mode"]
+        state.append(entry)
+    return state
+
+
 def _write_file(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
@@ -525,15 +613,66 @@ class Command(BaseCommand):
                 meta_lines.append(f"        {meta_attr} = {color_value!r}")
         meta_block = "\n".join(meta_lines)
 
-        _reasoning = bool(assistant.get("reasoning_available", False))
-        _websearch = bool(assistant.get("websearch_available", False))
-        _extra_fields = ""
-        if _reasoning:
-            _extra_fields += "    reasoning = True\n"
-        if _websearch:
-            _extra_fields += "    websearch = True\n"
+        attachment_specs = _attachment_specs_from_config(assistant.get("attachment_config"))
+        token_strategy = _TOKEN_OPTIMIZATIONS.get(
+            str(assistant.get("strategy_to_optimize_tokens") or "")
+        )
 
-        agent_py = f"""from cogsol.agents import BaseAgent, genconfigs
+        # Emitted only when the assistant uses them; declared_extras mirrors exactly
+        # what the generated class declares, so the migration state matches it.
+        extra_lines: list[str] = []
+        declared_extras: dict[str, Any] = {}
+
+        def _declare(attr: str, state_value: Any, source_value: str | None = None) -> None:
+            extra_lines.append(f"    {attr} = {source_value or repr(state_value)}")
+            declared_extras[attr] = state_value
+
+        if assistant.get("streaming_available"):
+            _declare("streaming", True)
+        if assistant.get("realtime_available"):
+            _declare("realtime", True)
+        if assistant.get("async_available"):
+            _declare("asynchronous", True)
+        if assistant.get("matrix_mode_available"):
+            _declare("self_improvement_mode", True)
+        if assistant.get("reasoning_enabled"):
+            _declare("reasoning", True)
+        if assistant.get("reasoning_effort"):
+            _declare("reasoning_effort", assistant.get("reasoning_effort"))
+        if assistant.get("reasoning_summary"):
+            _declare("reasoning_summary", assistant.get("reasoning_summary"))
+        if assistant.get("web_search_enabled"):
+            _declare("websearch", True)
+        if assistant.get("web_search_mode"):
+            _declare("websearch_mode", assistant.get("web_search_mode"))
+        if assistant.get("web_search_allowed_domains"):
+            _declare("websearch_domains", assistant.get("web_search_allowed_domains"))
+        if assistant.get("web_search_location"):
+            _declare("websearch_location", assistant.get("web_search_location"))
+        if assistant.get("add_to_user_message"):
+            _declare("append_to_user_message", assistant.get("add_to_user_message"))
+        if assistant.get("messages_window_to_generator") is not None:
+            _declare("user_interactions_window", int(assistant.get("messages_window_to_generator")))
+        if token_strategy:
+            _declare(
+                "token_optimization",
+                assistant.get("strategy_to_optimize_tokens"),
+                f"optimizations.{token_strategy}()",
+            )
+        if attachment_specs:
+            declared_extras["attachments"] = _attachment_state(attachment_specs)
+
+        _extra_fields = "".join(f"{line}\n" for line in extra_lines)
+        _extra_fields += _attachment_source(attachment_specs)
+
+        imports = ["BaseAgent", "genconfigs"]
+        if attachment_specs:
+            imports.append("attachment")
+        if token_strategy:
+            imports.append("optimizations")
+        agent_imports = ", ".join(imports)
+
+        agent_py = f"""from cogsol.agents import {agent_imports}
 from cogsol.prompts import Prompts
 from ..tools import *
 
@@ -909,10 +1048,7 @@ class {class_name}(BaseAgent):
             "initial_message": assistant.get("initial_message"),
             "forced_termination_message": assistant.get("end_message"),
             "no_information_message": assistant.get("not_info_message"),
-            "streaming": assistant.get("streaming_available"),
-            "realtime": assistant.get("realtime_available"),
-            "reasoning": assistant.get("reasoning_available"),
-            "websearch": assistant.get("websearch_available"),
+            **declared_extras,
             "tools": [n for n in (_tool_name_for_id(sid) for sid in tools_ids) if n],
             "pretools": [n for n in (_tool_name_for_id(sid) for sid in pretools_ids) if n],
             "faqs": [

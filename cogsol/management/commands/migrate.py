@@ -10,7 +10,16 @@ import textwrap
 from pathlib import Path
 from typing import Any, Optional, cast
 
-from cogsol.agents import genconfigs
+from cogsol.agents import (
+    ATTACHMENT_CONTENT_TYPES,
+    PDF_CONTENT_TYPE,
+    PDF_MODES,
+    REASONING_EFFORTS,
+    REASONING_SUMMARIES,
+    WEBSEARCH_MODES,
+    BaseAgent,
+    genconfigs,
+)
 from cogsol.content import BaseRetrieval
 from cogsol.core import migrations as migutils
 from cogsol.core.api import CogSolAPIError, CogSolClient
@@ -49,6 +58,71 @@ def sub_slug(cls: type | None) -> str | None:
         if len(parts) >= 2:
             return parts[1]
     return None
+
+
+def _attachment_spec_fields(agent_name: str, spec: Any) -> tuple[list[str], bool, bool, Any]:
+    """Read one attachment spec, either a live spec object or its migrated dict."""
+    if isinstance(spec, dict):
+        content_types = spec.get("content_types")
+        accepted = spec.get("accepted", True)
+        send_to_model = spec.get("send_to_model", False)
+        mode = spec.get("mode")
+    else:
+        content_types = getattr(spec, "content_types", None)
+        accepted = getattr(spec, "accepted", True)
+        send_to_model = getattr(spec, "send_to_model", False)
+        mode = getattr(spec, "mode", None)
+
+    if isinstance(content_types, str):
+        content_types = [content_types]
+    if not isinstance(content_types, (list, tuple)) or not content_types:
+        raise CogSolAPIError(
+            "Each attachment must declare at least one content type. "
+            f"Fix the attachments of agent '{agent_name}'."
+        )
+    names = [str(item) for item in content_types]
+
+    if send_to_model and not accepted:
+        raise CogSolAPIError(
+            f"Attachment '{names[0]}' of agent '{agent_name}' sets send_to_model without "
+            "accepted. An attachment that is not accepted never reaches the model."
+        )
+    if mode is not None and mode not in PDF_MODES:
+        raise CogSolAPIError(
+            f"Invalid attachment mode '{mode}' for agent '{agent_name}'. "
+            f"Valid modes: {', '.join(PDF_MODES)}."
+        )
+    return names, bool(accepted), bool(send_to_model), mode
+
+
+def _attachment_config_payload(agent_name: str, attachments: Any) -> dict[str, Any]:
+    """Build the Cognitive attachment_config map from an agent's attachment specs."""
+    if attachments is None:
+        return {}
+    if not isinstance(attachments, (list, tuple)):
+        raise CogSolAPIError(
+            f"attachments must be a list of attachment specs. Fix agent '{agent_name}'."
+        )
+
+    config: dict[str, dict[str, Any]] = {}
+    for spec in attachments:
+        content_types, accepted, send_to_model, mode = _attachment_spec_fields(agent_name, spec)
+        for content_type in content_types:
+            if content_type not in ATTACHMENT_CONTENT_TYPES:
+                raise CogSolAPIError(
+                    f"Unsupported attachment content type '{content_type}' for agent "
+                    f"'{agent_name}'. Supported types: {', '.join(ATTACHMENT_CONTENT_TYPES)}."
+                )
+            if content_type in config:
+                raise CogSolAPIError(
+                    f"Attachment content type '{content_type}' is configured twice for agent "
+                    f"'{agent_name}'. Declare each content type once."
+                )
+            entry: dict[str, Any] = {"accepted": accepted, "send_to_model": send_to_model}
+            if content_type == PDF_CONTENT_TYPE:
+                entry["pdf_mode"] = mode or "image"
+            config[content_type] = entry
+    return config
 
 
 class Command(BaseCommand):
@@ -1191,6 +1265,14 @@ class Command(BaseCommand):
                 return meta.get(attr, default)
             return default
 
+        def _is_declared(attr: str) -> bool:
+            """True when the agent itself declares the attribute, not just BaseAgent."""
+            if attr in fields:
+                return True
+            if cls is None:
+                return False
+            return any(attr in k.__dict__ for k in cls.__mro__ if k not in (BaseAgent, object))
+
         def _normalize_config(value: Any, default: str = "default") -> str:
             if value is None:
                 return default
@@ -1318,7 +1400,6 @@ class Command(BaseCommand):
             ),
             "initial_message": _get("initial_message"),
             "end_message": _get("forced_termination_message"),
-            "add_to_user_message": None,
             "max_consecutive_tool_calls": _int_or_default(
                 _first_non_none(
                     _get("max_consecutive_tool_calls"),
@@ -1326,9 +1407,7 @@ class Command(BaseCommand):
                 ),
                 default=0,
             ),
-            "matrix_mode_available": bool(_get("realtime", False)),
             "not_info_message": _get("no_information_message"),
-            "strategy_to_optimize_tokens": None,
             "faq_available": bool(getattr(cls, "faqs", []) if cls else fields.get("faqs")),
             "fixed_available": bool(
                 getattr(cls, "fixed_responses", []) if cls else fields.get("fixed_responses")
@@ -1337,8 +1416,8 @@ class Command(BaseCommand):
                 getattr(cls, "lessons", []) if cls else fields.get("lessons")
             ),
             "realtime_available": bool(_get("realtime", False)),
-            "reasoning_available": bool(_get("reasoning", False)),
-            "websearch_available": bool(_get("websearch", False)),
+            "reasoning_enabled": bool(_get("reasoning", False)),
+            "web_search_enabled": bool(_get("websearch", False)),
             "info": _get_meta("alias") or _get_meta("chat_name"),
             "colors": colors,
             "logo": _get_meta("logo_url"),
@@ -1346,7 +1425,80 @@ class Command(BaseCommand):
             "tools": tool_ids,
             "pretools": pretool_ids,
         }
+
+        # Only sent when declared, so what is left to the portal survives a migrate.
+        def _set_if_declared(attr: str, key: str, cast_value=None, allow_none: bool = True) -> None:
+            if not _is_declared(attr):
+                return
+            value = _get(attr)
+            if value is None:
+                if not allow_none:
+                    return
+                payload[key] = None
+                return
+            payload[key] = cast_value(value) if cast_value is not None else value
+
+        # Nullable in Cognitive: an explicit None clears the field.
+        _set_if_declared("append_to_user_message", "add_to_user_message")
+        _set_if_declared("websearch_domains", "web_search_allowed_domains")
+        _set_if_declared("websearch_location", "web_search_location")
+        _set_if_declared("reasoning_effort", "reasoning_effort")
+        _set_if_declared("reasoning_summary", "reasoning_summary")
+
+        # Not nullable in Cognitive: None means "not configured", keep the remote value.
+        _set_if_declared("asynchronous", "async_available", bool, allow_none=False)
+        _set_if_declared("self_improvement_mode", "matrix_mode_available", bool, allow_none=False)
+        _set_if_declared(
+            "user_interactions_window", "messages_window_to_generator", int, allow_none=False
+        )
+        _set_if_declared("websearch_mode", "web_search_mode", allow_none=False)
+
+        if _is_declared("token_optimization"):
+            payload["strategy_to_optimize_tokens"] = _normalize_config(
+                _get("token_optimization"), default="no_optimization"
+            )
+
+        if _is_declared("attachments"):
+            payload["attachment_config"] = _attachment_config_payload(
+                agent_name, _get("attachments")
+            )
+
+        self._validate_assistant_payload(agent_name, payload)
         return payload
+
+    def _validate_assistant_payload(self, agent_name: str, payload: dict[str, Any]) -> None:
+        """Reject choice fields Cognitive would accept but never be able to use."""
+        choices = (
+            ("reasoning_effort", REASONING_EFFORTS),
+            ("reasoning_summary", REASONING_SUMMARIES),
+            ("web_search_mode", WEBSEARCH_MODES),
+        )
+        for key, valid in choices:
+            value = payload.get(key)
+            if value is not None and value not in valid:
+                raise CogSolAPIError(
+                    f"Invalid {key} '{value}' for agent '{agent_name}'. "
+                    f"Valid values: {', '.join(valid)}."
+                )
+
+        domains = payload.get("web_search_allowed_domains")
+        if domains is not None and not isinstance(domains, list):
+            raise CogSolAPIError(
+                f"websearch_domains must be a list of domains. Fix agent '{agent_name}'."
+            )
+
+        location = payload.get("web_search_location")
+        if location is not None and not isinstance(location, dict):
+            raise CogSolAPIError(
+                "websearch_location must be a dict with country/city/region/timezone keys. "
+                f"Fix agent '{agent_name}'."
+            )
+
+        if payload.get("matrix_mode_available") and not payload.get("faq_available"):
+            raise CogSolAPIError(
+                f"Agent '{agent_name}' enables self_improvement_mode but declares no FAQs. "
+                "Cognitive matrix mode requires FAQ support."
+            )
 
     def _faq_payload(self, faq_obj: Any) -> dict[str, Any]:
         name = (
